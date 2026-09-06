@@ -118,18 +118,22 @@ and the absence of sensitive values from metric exposition.
 
 ### 4. Durable state model
 
-Define a versioned state schema stored in the controller state Secret. It may
-contain workflow metadata such as:
+Define a versioned state schema stored in the controller state Secret. Persist
+only the minimum recovery state that cannot be reconstructed from Kubernetes:
 
-- Cluster UID and generation;
-- observed topology fingerprint;
-- current and pending lease IDs;
-- issue and verification timestamps;
-- workflow phase;
-- retry metadata;
-- absence and cleanup metadata.
+- top-level `version`;
+- the per-Cluster map key (`namespace/name`);
+- `clusterUID`;
+- `currentLeaseID` and `currentExpiresAt`;
+- `pending` with only `leaseID`, `username`, `expiresAt`, `stage`,
+  `stageDeadline`, `triggerID`, and optional `nextActionAt`; and
+- `lastEvent`.
 
-It must never contain credential material.
+Do not persist Cluster generation, observed status, resource versions, retry
+counters, heartbeat timestamps, issue/verification timestamps, absence
+counters, cleanup metadata, target namespace, external-cluster name,
+credential Secret name, or current username. The state must never contain
+credential material, especially passwords.
 
 Implement:
 
@@ -369,6 +373,13 @@ The E2E job must:
 Use workflow concurrency cancellation so obsolete PR runs do not consume
 runner capacity.
 
+The workflow must also expose one stable, non-matrix aggregate status job named
+`ci`. It must always evaluate after every required validation job, including
+the E2E job, and fail unless all required jobs succeed. This is the single
+stable check intended for a later branch-protection rule and Renovate
+auto-merge gate. Do not rely only on matrix-generated check names, which are
+awkward to configure and maintain as required checks.
+
 The repository will contain the workflow definitions, but enabling Actions,
 granting workflow permissions, selecting required checks, and enforcing those
 checks on branches are administrator tasks described in `GITHUB_SETUP.md`.
@@ -396,6 +407,12 @@ workflow change. Workflow syntax, action composition, environment variables,
 Docker builds, test commands, artifact paths, and failure cleanup must all be
 observable locally. CI caching may improve performance, but correctness must
 not depend on a cache and cache misses must work under `act`.
+
+Test the aggregate `ci` job locally with both passing and intentionally failing
+job fixtures. The passing case must produce a successful `ci` result; the
+failure case must still produce a completed, failed `ci` result rather than a
+skipped status. This proves that the later administrator can require `ci` as a
+branch-protection check and Renovate can wait on it.
 
 GitHub branch protection, required-status enforcement, the Actions badge after
 the workflow is enabled, and the final Renovate merge performed by GitHub
@@ -473,6 +490,8 @@ Milestone 2 is complete when:
 
 - the CI workflow definitions pass locally under `act` for the supported
   pull-request and push event fixtures;
+- the stable aggregate `ci` workflow job passes and fails correctly under
+  `act`;
 - the same local Makefile targets pass outside `act`;
 - the Renovate configuration exists and passes local validation;
 - the README contains the prepared Actions test badge;

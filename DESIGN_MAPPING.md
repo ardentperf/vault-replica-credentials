@@ -178,10 +178,12 @@ The future state model may contain only the recovery information that cannot be
 reconstructed from the Cluster: `version`, per-cluster `clusterUID`,
 `currentLeaseID`, `currentExpiresAt`, `pending`, and `lastEvent`. Pending data
 is limited to `leaseID`, `username`, `expiresAt`, `stage`, `stageDeadline`,
-`triggerID`, and optional `nextActionAt`. Valid stages are `issued`,
-`waiting-secret`, `password-patched`, `reconnect-pending`, `verified`, and
-`replacement-backoff`. It must not store passwords, target namespace, external
-cluster name, credential Secret name, issued timestamps, or current username.
+`triggerID`, and optional `nextActionAt`. Cluster generation, observed status,
+resource versions, retry counters, heartbeat/issue/verification timestamps,
+absence counters, and cleanup metadata are not durable state. Valid stages are
+`issued`, `waiting-secret`, `password-patched`, `reconnect-pending`,
+`verified`, and `replacement-backoff`. It must not store passwords, target
+namespace, external cluster name, credential Secret name, or current username.
 
 ## Explicitly out of scope
 

@@ -339,7 +339,7 @@ data:
   state.json: <base64-encoded-state-json>
 ```
 
-The decoded `state.json` can have this shape:
+The decoded `state.json` has only this shape:
 
 ```json
 {
@@ -363,18 +363,31 @@ cache/client for the `cnpg-system` namespace, so the controller has namespaced
 Secret `get`, `list`, `watch`, `update`, and `patch` access. It writes only the
 named state object.
 
-The important recovery fields are the per-cluster `clusterUID`,
-`currentLeaseID`, `currentExpiresAt`, `pending` object, and `lastEvent`. The
-Cluster UID distinguishes a newly created Cluster that reuses the same
-namespace/name from the previous Cluster. The pending object's `stage` records
-whether the password patch completed. These fields allow the controller to
-resume a rotation after a process crash when the password patch has already
-succeeded, and allow it to clean up a lease that was issued but not yet
-applied.
+The per-cluster fields are the minimum required durable state:
+
+- `clusterUID` distinguishes a newly created Cluster that reuses the same
+  namespace/name from the previous Cluster;
+- `currentLeaseID` is required to revoke the active lease;
+- `currentExpiresAt` is required for lease-expiration monitoring and expiry
+  handling;
+- `pending` is required to resume or clean up a partially applied rotation;
+  and
+- `lastEvent` records the last committed trigger so repeated observations do
+  not issue another credential.
+
+The map key already carries the Cluster namespace/name, so those values are
+not duplicated in `ClusterState`. Cluster generation, observed status,
+resource versions, retry counters, heartbeat timestamps, issue timestamps,
+verification timestamps, absence counters, and cleanup metadata are
+reconstructed or kept in memory and must not be persisted.
 
 An in-progress `pending` object contains only `leaseID`, `username`,
 `expiresAt`, `stage`, `stageDeadline`, `triggerID`, and, when a deliberate
-delay is required, `nextActionAt`. Valid stages are `issued`,
+delay is required, `nextActionAt`. `leaseID` and `expiresAt` recover the new
+lease, `username` allows the username patch to resume without storing a
+password, `stage` records the completed side effect, `stageDeadline` survives
+a process restart, `triggerID` deduplicates the active event, and
+`nextActionAt` survives the required timed requeues. Valid stages are `issued`,
 `waiting-secret`, `password-patched`, `reconnect-pending`, and `verified`.
 `replacement-backoff` is also valid when a pending credential attempt timed
 out or expired and must be replaced. In that stage, the old pending lease ID
@@ -384,9 +397,10 @@ is retained until best-effort revocation succeeds; no password is stored.
 `nextActionAt` is written only for the short password-propagation pause and the
 delayed verification check; it is cleared when the next stage begins.
 
-The controller should write state only when a phase or lease value changes. It
-should not write heartbeat timestamps on every retry. This keeps the state
-small and limits unnecessary etcd writes. Set a practical application ceiling,
+The controller should write state only when a required field changes. It must
+not write heartbeat timestamps, retry counters, or other progress telemetry on
+every retry. This keeps the state minimal and limits unnecessary etcd writes.
+Set a practical application ceiling,
 such as 256 KiB for the decoded JSON, alert before reaching it, and reject new
 state entries rather than allowing the object to grow without bound. The
 expected deployment population is small enough that one compact state object

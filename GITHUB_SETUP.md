@@ -9,6 +9,8 @@ are not part of the local implementation milestone.
 Confirm that the repository contains and locally validates:
 
 - the GitHub Actions workflow definitions;
+- a stable aggregate `ci` workflow job that reports pass/fail after all
+  required jobs;
 - the local `act` event fixtures and commands;
 - `renovate.json` and any Renovate custom managers;
 - `CODEOWNERS`;
@@ -53,7 +55,10 @@ development.
 Configure protection for the default branch according to repository policy:
 
 - require pull requests rather than direct pushes;
-- require the workflow checks listed in the CI definitions;
+- require the stable aggregate `ci` workflow check listed in the CI
+  definitions;
+- optionally require individual checks in addition to `ci`, but do not make
+  matrix-generated job names the only merge gate;
 - require branches to be current before merge if appropriate;
 - require code-owner review where the organization uses it;
 - block force pushes and branch deletion; and
@@ -73,8 +78,9 @@ enforce these repository settings.
    shell-script dependency sources.
 4. Enable the documented Renovate auto-merge policy only after required CI
    checks and branch protection are active.
-5. Require all relevant checks, including the full E2E suite, before merging a
-   Renovate dependency pull request.
+5. Require the stable aggregate `ci` check, which includes all relevant checks
+   including the full E2E suite, before merging a Renovate dependency pull
+   request.
 6. Keep major updates manual unless the project explicitly changes that policy.
 
 The first Renovate pull request should be observed manually to confirm update
