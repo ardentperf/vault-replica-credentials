@@ -4,12 +4,6 @@ nodes:
   - role: control-plane
   - role: worker
     labels:
-      infra.node.kubernetes.io: ""
-  - role: worker
-    labels:
-      app.node.kubernetes.io: ""
-  - role: worker
-    labels:
       postgres.node.kubernetes.io: ""
     kubeadmConfigPatches:
       - |

@@ -204,4 +204,7 @@ The detailed scenario, fixture, assertion, and teardown plan is in
 `cloudnative-pg/cnpg-playground` checkout at
 `1957b42b445532d284513964f53e3085b4f745f9`, not the local playground checkout.
 The plan copies setup conventions only; this repository has no playground
-dependency.
+dependency. Each test cluster uses one control-plane node and three tainted
+PostgreSQL workers. CNPG, Vault, this operator, and the test gateways are
+scheduled on the control plane; the three workers provide alternate placement
+when a primary's node is cordoned and drained.

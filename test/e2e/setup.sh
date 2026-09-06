@@ -154,20 +154,32 @@ label_nodes() {
 
 	kubectl --context "${context}" label node -l postgres.node.kubernetes.io \
 		node-role.kubernetes.io/postgres="" --overwrite
-	kubectl --context "${context}" label node -l infra.node.kubernetes.io \
-		node-role.kubernetes.io/infra="" --overwrite
-	kubectl --context "${context}" label node -l app.node.kubernetes.io \
-		node-role.kubernetes.io/app="" --overwrite
 	kubectl --context "${context}" label nodes --all --overwrite \
 		topology.kubernetes.io/region="${region}" \
 		topology.kubernetes.io/zone="${region}-1"
 
 	while IFS= read -r node; do
-		kubectl --context "${context}" label node "${node}" --overwrite \
+		kubectl --context "${context}" label "${node}" --overwrite \
 			topology.kubernetes.io/zone="${region}-${zone_index}"
 		zone_index=$((zone_index + 1))
 	done < <(kubectl --context "${context}" get nodes -l postgres.node.kubernetes.io \
 		-o name | sort)
+}
+
+assert_node_topology() {
+	local region="$1"
+	local context
+	local control_plane_count
+	local postgres_count
+	context=$(context_for "${region}")
+	control_plane_count=$(kubectl --context "${context}" get nodes \
+		-l node-role.kubernetes.io/control-plane --no-headers | wc -l)
+	postgres_count=$(kubectl --context "${context}" get nodes \
+		-l postgres.node.kubernetes.io --no-headers | wc -l)
+	if [[ "${control_plane_count}" -ne 1 || "${postgres_count}" -ne 3 ]]; then
+		log "unexpected ${region} topology: control-plane=${control_plane_count}, postgres=${postgres_count}"
+		return 1
+	fi
 }
 
 install_cnpg() {
@@ -271,6 +283,8 @@ main() {
 	create_cluster eu
 	label_nodes us
 	label_nodes eu
+	assert_node_topology us
+	assert_node_topology eu
 	kubectl --context "${US_CONTEXT}" create namespace "${CNPG_WATCH_NAMESPACE}"
 	kubectl --context "${EU_CONTEXT}" create namespace "${CNPG_WATCH_NAMESPACE}"
 	install_cnpg us

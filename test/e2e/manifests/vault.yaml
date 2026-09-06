@@ -51,6 +51,11 @@ spec:
                 secretKeyRef:
                   name: vault-dev-token
                   key: root-token
+            - name: HOME
+              value: /tmp
+          volumeMounts:
+            - name: vault-tmp
+              mountPath: /tmp
           ports:
             - name: http
               containerPort: __VAULT_HOST_PORT__
@@ -74,6 +79,9 @@ spec:
             readOnlyRootFilesystem: true
             capabilities:
               drop: ["ALL"]
+      volumes:
+        - name: vault-tmp
+          emptyDir: {}
 ---
 apiVersion: v1
 kind: Service

@@ -250,6 +250,13 @@ authentication is intentionally represented by a test-only static token; the
 tests cover the dynamic database provider, not Vault auth setup or certificate
 authentication.
 
+Each E2E Kind cluster has one control-plane node and three tainted PostgreSQL
+worker nodes. CloudNativePG, Vault, this operator, and the test gateways run on
+the control-plane node; PostgreSQL instances run on the PostgreSQL workers.
+The three workers are required so a cordon/drain test can move a replica
+cluster's primary Pod to a different eligible PostgreSQL node and verify that
+the resulting replacement episode causes credential rotation.
+
 The harness copies useful setup patterns from the upstream
 [`cloudnative-pg/cnpg-playground`](https://github.com/cloudnative-pg/cnpg-playground)
 repository, pinned for this plan to commit

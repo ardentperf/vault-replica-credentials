@@ -18,6 +18,11 @@ spec:
         app.kubernetes.io/component: controller
     spec:
       serviceAccountName: vault-replica-controller
+      nodeSelector:
+        node-role.kubernetes.io/control-plane: ""
+      tolerations:
+        - key: node-role.kubernetes.io/control-plane
+          operator: Exists
       securityContext:
         runAsNonRoot: true
         seccompProfile:

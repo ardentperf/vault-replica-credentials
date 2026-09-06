@@ -53,8 +53,8 @@ Patterns to copy conceptually are:
 
 - `scripts/common.sh` for release variables, Kind naming, and prerequisites;
 - `scripts/funcs_regions.sh` for region-to-cluster/context naming;
-- `k8s/kind-cluster.yaml` for the six-node topology and PostgreSQL worker
-  taints;
+- `k8s/kind-cluster.yaml` for the control-plane/worker topology and PostgreSQL
+  worker taints;
 - `scripts/setup.sh` for creating multiple Kind clusters and labeling nodes;
 - `demo/funcs_requirements.sh` for installing a released CNPG manifest and
   waiting for the operator; and
@@ -109,20 +109,18 @@ The suite provisions and owns the complete test environment.
 | First database namespace | `e2e-first` |
 | Second database namespace | `e2e-second` |
 
-Each Kind cluster uses the upstream playground shape:
+Each Kind cluster uses a simplified form of the upstream playground shape:
 
 - one control-plane node;
-- one infra worker;
-- one application worker; and
 - three PostgreSQL workers, labeled for PostgreSQL placement and tainted with
   `node-role.kubernetes.io/postgres:NoSchedule`.
 
 The harness labels nodes with the regional topology keys and gives the three
-PostgreSQL workers distinct regional zones. CNPG and this controller are
-placed on the control-plane node with the necessary control-plane toleration;
-PostgreSQL workloads are placed on the tainted workers. Resource requests must
-be sized so that the suite can run the required source and replica instances
-without accidental eviction.
+PostgreSQL workers distinct regional zones. CNPG, Vault, this controller, and
+the test gateways are placed on the control-plane node with the necessary
+control-plane toleration. PostgreSQL workloads are placed on the tainted
+workers. Resource requests must be sized so that the suite can run the
+required source and replica instances without accidental eviction.
 
 The harness creates `e2e-bootstrap` in both clusters before installing the
 operators. It contains no CNPG `Cluster` resources. This gives the initial
@@ -152,7 +150,7 @@ cluster unless an explicit future debug mode is added.
 
 ### 2. Create the two Kind clusters
 
-Create `k8s-us` and `k8s-eu` from the copied six-node Kind configuration. Use
+Create `k8s-us` and `k8s-eu` from the copied four-node Kind configuration. Use
 the `kind-` context prefix and the `k8s-` cluster base name from the upstream
 pattern. Set `KUBECONFIG` to the run-local shared file and verify both
 contexts, all nodes, labels, taints, and cross-node scheduling.
@@ -478,9 +476,11 @@ fingerprint is complete.
 
 Identify the node holding the current designated primary, cordon it, and drain
 it with bounded, test-controlled eviction flags. Wait for CNPG to replace or
-promote the affected instance. Assert one rotation, successful WAL recovery,
-and old-lease revocation. Uncordon the node and verify that the cluster is
-stable before the next phase.
+promote the affected instance onto a different PostgreSQL worker. The three
+PostgreSQL workers are specifically required so the drained node is not the
+only eligible destination. Assert one rotation after the replacement primary
+is observed, successful WAL recovery, and old-lease revocation. Uncordon the
+node and verify that the cluster is stable before the next phase.
 
 The harness records the node, Pod UID, replacement identity, and timing so a
 failure can distinguish node-drain behavior from a normal Pod restart.

@@ -12,5 +12,5 @@ RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -ldflags='-s -w' \
 FROM gcr.io/distroless/static-debian12:nonroot
 
 COPY --from=build /out/vault-replica-controller /vault-replica-controller
-USER nonroot:nonroot
+USER 65532:65532
 ENTRYPOINT ["/vault-replica-controller"]
