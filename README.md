@@ -20,6 +20,10 @@ standard controller-runtime/client-go metrics where available and adds only a
 small set of domain metrics for rotations, Vault operations, pending workflows,
 and per-Cluster lease time to expiration.
 
+The implementation roadmap is in [IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md).
+GitHub administrators should follow [GITHUB_SETUP.md](GITHUB_SETUP.md) after
+the local CI and repository artifacts are ready.
+
 ## Local checks
 
 ```sh

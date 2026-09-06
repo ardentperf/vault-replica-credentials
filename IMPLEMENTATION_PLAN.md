@@ -316,11 +316,11 @@ tests, static analysis, manifest validation, image builds, and the complete
 E2E suite. A developer must be able to reproduce the same commands used by CI
 without GitHub credentials or a cloud account.
 
-## Milestone 2: GitHub project and CI
+## Milestone 2: GitHub-ready project and CI artifacts
 
-### 12. Pull-request CI
+### 12. CI workflow definitions
 
-Create required GitHub Actions checks for:
+Write GitHub Actions workflow definitions for:
 
 - Go formatting;
 - `go vet`;
@@ -369,6 +369,10 @@ The E2E job must:
 Use workflow concurrency cancellation so obsolete PR runs do not consume
 runner capacity.
 
+The repository will contain the workflow definitions, but enabling Actions,
+granting workflow permissions, selecting required checks, and enforcing those
+checks on branches are administrator tasks described in `GITHUB_SETUP.md`.
+
 ### 13. Local execution of CI
 
 Define local commands before finalizing the workflow, for example:
@@ -393,23 +397,25 @@ Docker builds, test commands, artifact paths, and failure cleanup must all be
 observable locally. CI caching may improve performance, but correctness must
 not depend on a cache and cache misses must work under `act`.
 
-GitHub branch protection, required-status enforcement, the Actions badge, and
-the final Renovate merge performed by GitHub cannot be fully emulated by
-`act`. Keep those pieces declarative and minimal; validate their configuration
-locally where possible, then verify the actual repository settings with one
-small non-production pull request.
+GitHub branch protection, required-status enforcement, the Actions badge after
+the workflow is enabled, and the final Renovate merge performed by GitHub
+cannot be fully emulated by `act`. Keep those pieces declarative and minimal;
+the administrator handoff document describes the later repository setup.
 
-### 14. Repository quality controls
+### 14. Repository preparation artifacts
 
-Add:
+Write and review:
 
-- branch protection with required CI checks;
 - `CODEOWNERS`;
-- a pull-request template with design-impact and test-result sections;
 - documented local development and E2E commands;
 - Makefile targets that match CI;
 - a README describing scope, architecture, testing, E2E setup, and cleanup;
-- a GitHub Actions test badge in the README.
+- a GitHub Actions test badge in the README; and
+- `GITHUB_SETUP.md` with the administrator tasks required after this milestone.
+
+Do not add a pull-request template. Do not configure branch protection, create
+GitHub teams, enable repository Actions settings, install the Renovate app, or
+grant repository automation permissions as part of the local implementation.
 
 Do not add image publishing, release tags, changelog automation, or deployment
 promotion workflows in this phase.
@@ -433,9 +439,15 @@ stored in shell variables or other nonstandard locations. Avoid floating
 `latest` tags. Pin GitHub Actions and update their commit pins through
 Renovate.
 
+Validate the configuration locally with Renovate's config validator or
+equivalent offline validation. Confirm that every intended dependency source is
+discoverable without requiring a Renovate token or GitHub API access.
+
 ### 16. Renovate auto-merge policy
 
-Renovate-created pull requests may auto-merge only when:
+Document the intended policy for later administrator configuration. Once the
+Renovate app and repository permissions are installed, Renovate-created pull
+requests may auto-merge only when:
 
 - all required CI checks pass;
 - the full E2E suite passes when relevant;
@@ -450,22 +462,45 @@ Major updates should remain manual until the project has sufficient test
 history; expanding auto-merge to major updates requires an explicit policy
 change.
 
+The policy itself is a local repository artifact. Installing Renovate,
+granting it permissions, enabling auto-merge, and verifying an actual merged
+Renovate pull request are administrator tasks and are not Milestone 2 local
+completion gates.
+
 ### 17. Milestone 2 completion gates
 
 Milestone 2 is complete when:
 
-- every PR receives automated validation;
-- branch protection enforces the required checks;
-- the README contains a working passing-tests badge;
-- Renovate discovers all supported dependency locations;
-- Renovate PRs receive the defined test and security gates;
-- approved dependency PRs auto-merge safely;
-- failed E2E runs retain useful redacted diagnostics;
+- the CI workflow definitions pass locally under `act` for the supported
+  pull-request and push event fixtures;
+- the same local Makefile targets pass outside `act`;
+- the Renovate configuration exists and passes local validation;
+- the README contains the prepared Actions test badge;
+- `CODEOWNERS`, `MONITORING.md`, `E2E_TEST_PLAN.md`, and the other project
+  documentation are complete;
+- `GITHUB_SETUP.md` documents the administrator-owned GitHub setup steps;
+- failed E2E runs retain useful redacted diagnostics locally; and
 - no release or registry-publishing behavior has been introduced.
+
+The following are deliberately not Milestone 2 completion gates because they
+require GitHub administrator access:
+
+- enabling or configuring repository Actions settings;
+- creating GitHub teams and assigning repository permissions;
+- configuring branch protection or required status checks;
+- installing and authorizing the Renovate app;
+- enabling repository auto-merge; and
+- merging a real Renovate pull request.
 
 ## Definition of done
 
-The project is ready for later release work when the implementation satisfies
-the design contract, the complete ordered E2E suite passes repeatedly from a
-clean environment, all required CI checks are green on pull requests, and
-dependency updates are observable and safely managed by Renovate.
+The local implementation is done when the source satisfies the design
+contract, the complete ordered E2E suite passes repeatedly from a clean
+environment, the CI workflows pass under `act`, the Renovate configuration is
+locally validated, and the README, design/operations documents, `CODEOWNERS`,
+and `GITHUB_SETUP.md` are complete.
+
+GitHub-side enablement and enforcement are intentionally deferred to an
+administrator following `GITHUB_SETUP.md`. This definition of done does not
+claim that branch protection, teams, Actions settings, Renovate installation,
+or Renovate auto-merge have been configured.
