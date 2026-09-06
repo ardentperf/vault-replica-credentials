@@ -1,0 +1,24 @@
+# Example approved namespace. Copy this Role once per namespace in
+# WATCH_NAMESPACE. The controller reads each target Secret name from the
+# selected Cluster external-cluster password reference.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: vault-replica-controller
+  namespace: reporting
+rules:
+  - apiGroups: ["postgresql.cnpg.io"]
+    resources: ["clusters"]
+    verbs: ["get", "list", "watch", "patch"]
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: [""]
+    resources: ["pods/proxy"]
+    verbs: ["get"]
+  - apiGroups: [""]
+    resources: ["events"]
+    verbs: ["create", "patch"]
+  - apiGroups: [""]
+    resources: ["secrets"]
+    verbs: ["patch"]

@@ -1,0 +1,13 @@
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: vault-replica-controller
+  namespace: cnpg-system
+subjects:
+  - kind: ServiceAccount
+    name: vault-replica-controller
+    namespace: cnpg-system
+roleRef:
+  kind: Role
+  name: vault-replica-controller
+  apiGroup: rbac.authorization.k8s.io

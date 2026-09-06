@@ -1,0 +1,13 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - installation/state-secret.yaml
+  - manager/deployment.yaml
+  - rbac/serviceaccount.yaml
+  - rbac/system-role.yaml
+  - rbac/system-rolebinding.yaml
+  # reporting is an example approved namespace. Duplicate both target RBAC
+  # resources for every namespace in WATCH_NAMESPACE.
+  - rbac/target-role.yaml
+  - rbac/target-rolebinding.yaml
