@@ -30,8 +30,11 @@ explicitly out of scope for both milestones.
   catalog queries belong only to the E2E test actor.
 - Never place passwords, Vault tokens, target Secret data, or current dynamic
   usernames in controller state, logs, metrics, or test artifacts.
-- Make all external interactions injectable so unit and integration tests do
-  not require a live Kubernetes cluster or Vault instance.
+- Use seams at true external boundaries so focused unit and integration tests
+  can run without live Kubernetes or Vault when that provides clear value. Do
+  not add abstractions or mocks solely to isolate simple internal code; prefer
+  testing real code paths and use the complete E2E environment for interactions
+  whose value depends on real Kubernetes, CNPG, Vault, or PostgreSQL behavior.
 - Follow a local-first rule: every meaningful CI check must have a local
   command, and GitHub Actions must orchestrate the same scripts and Makefile
   targets rather than contain untested CI-only logic.
@@ -72,18 +75,23 @@ The responsibility boundary must remain explicit:
 
 ### 2. Test foundation first
 
-Build reusable test infrastructure before reconciliation behavior:
+Start with ordinary table-driven tests and the smallest reusable helpers that
+are justified by repetition. Build only the following focused test seams:
 
-- CNPG `Cluster`, Pod, Secret, and state-Secret fixture builders;
-- fake Kubernetes clients and API servers that can assert exact verbs and
-  resources;
+- lightweight CNPG `Cluster`, Pod, Secret, and state-Secret fixtures;
+- controller-runtime's existing fake client for ordinary reconciliation tests;
+- a small focused API test for contractual Secret patch and `pods/proxy`
+  requests where the exact verb/path matters;
 - a controllable clock and bounded polling/retry helpers;
-- an interface-backed fake Vault HTTP server;
-- Vault response fixtures for success, malformed responses, short leases,
-  timeouts, retries, and revoke failures;
-- `/pg/status` response fixtures;
-- redacted logging and artifact helpers;
+- an `httptest` Vault server for the Vault client protocol and failure cases;
+- `/pg/status` response fixtures for status parsing;
+- redacted logging and artifact helpers; and
 - E2E SQL helpers for the test actor only.
+
+Do not build a general-purpose mock framework or fake every dependency. Prefer
+real implementations for pure logic and use envtest, Kind, and the real
+ephemeral Vault only where their behavior provides coverage that a unit test
+cannot provide.
 
 Tests must be deterministic and must not depend on arbitrary sleeps. Production
 timers should use injected clocks where practical; E2E waits should use
@@ -144,9 +152,9 @@ Implement:
 5. restart recovery;
 6. cleanup of finalized entries.
 
-Test crashes and restarts before and after every external mutation. Verify that
-recovery does not issue duplicate credentials or lose the lease that must be
-revoked.
+Test the critical crash and restart boundaries around external mutations.
+Verify that recovery does not issue duplicate credentials or lose the lease
+that must be revoked; do not create separate tests for every internal helper.
 
 ### 5. Resource watches and event qualification
 
