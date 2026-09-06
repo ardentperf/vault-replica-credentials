@@ -246,6 +246,7 @@ The E2E harness must provision from a clean host:
 - the selected released CNPG version;
 - one plain-HTTP dev-mode Vault in `us`;
 - one regional controller per cluster;
+- one minimal ephemeral Prometheus observer per cluster;
 - host-network PostgreSQL gateways;
 - no database Cluster resources during infrastructure setup.
 
@@ -306,6 +307,7 @@ Milestone 1 is complete only when all of the following pass:
 - Kubernetes RBAC assertions;
 - credential and token redaction assertions;
 - custom metric and metric-redaction assertions;
+- Prometheus target-health, metric-shipping, and metric-accuracy assertions;
 - failure diagnostics and cleanup of only run-owned Kind clusters.
 
 Every gate must be runnable from a local checkout. The implementation should
@@ -333,8 +335,11 @@ Create required GitHub Actions checks for:
 
 Monitoring tests must scrape the controller metrics endpoint locally and
 assert the custom rotation, Vault-operation, pending-workflow, and lease-time
-series. Do not install Prometheus solely for the initial E2E suite; direct
-exposition checks plus local alert-query tests are sufficient.
+series through a minimal per-cluster Prometheus observer. Do not install
+dashboards, Alertmanager, Prometheus Operator, or a cross-cluster monitoring
+stack. Direct exposition checks remain useful for diagnosing a Prometheus
+shipping mismatch, and local alert-query tests are sufficient; dashboard tests
+are not required.
 
 The workflow must be a thin orchestration layer. Each job calls a checked-in
 Makefile target or test script that can be run locally. Do not put important

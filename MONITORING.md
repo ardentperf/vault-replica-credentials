@@ -110,10 +110,44 @@ Metric behavior is tested at three levels:
    time-to-expiration calculation, and sensitive-value exclusion.
 2. Integration tests scrape the controller endpoint after representative
    rotations, Vault failures, pending workflows, and cleanup.
-3. The E2E actor scrapes both regional controllers directly. The initial E2E
-   environment does not need a Prometheus server; direct exposition checks are
-   sufficient. Alert expressions can be tested locally against fixture metric
-   samples.
+3. The E2E actor queries both regional Prometheus instances and may scrape the
+   controllers directly when diagnosing a shipping mismatch. The initial E2E
+   environment does not need dashboards or Alertmanager. Alert expressions can
+   be tested locally against fixture metric samples.
 
 The same metric checks must run locally and in GitHub Actions. No cloud
 monitoring service, GitHub OIDC, or GitHub-only credential is required.
+
+## E2E Prometheus observer
+
+The E2E environment installs one minimal, ephemeral Prometheus instance per
+Kind cluster. Each instance scrapes only the local controller through a
+namespaced ClusterIP metrics Service. The Prometheus image and scrape interval
+are pinned and Renovate-managed. Storage is short-retention and disposable.
+
+The E2E environment does not install Grafana, Alertmanager, Prometheus
+Operator, dashboards, recording rules, or a cross-cluster monitoring stack.
+Prometheus is an observer only; the controller must not call the Prometheus API
+or depend on Prometheus for reconciliation correctness.
+
+Before any database Cluster is created, the E2E harness verifies:
+
+- Prometheus readiness;
+- a healthy local controller target through `/api/v1/targets`; and
+- successful queries for the controller's metrics through `/api/v1/query`.
+
+For known test actions, the harness compares Prometheus query results with the
+expected behavior:
+
+- one expected counter increment for one successful rotation;
+- Vault issue and revoke operation counts matching the action;
+- pending workflow gauges returning to zero after completion;
+- the lease time-to-expiration series carrying the correct namespace and
+  Cluster labels;
+- lease time-to-expiration decreasing across scrapes without a new event; and
+- removal of the lease series after Cluster cleanup.
+
+The harness uses a fresh baseline or Prometheus counter semantics across
+deliberate controller restarts. It records scrape-target status, rendered
+configuration, query responses, and redacted metric samples as artifacts. It
+does not test dashboards.

@@ -144,9 +144,9 @@ Verify that the host has the required tools and that the run is isolated:
 - the normal shell utilities used by the harness.
 
 The harness records versions of Docker, Kind, Kubernetes, `kubectl`, the CNPG
-plugin, Go, and the selected CNPG release. It creates a unique temporary
-artifact directory and refuses to reuse an existing `k8s-us` or `k8s-eu`
-cluster unless an explicit future debug mode is added.
+plugin, Go, Prometheus, and the selected CNPG release. It creates a unique
+temporary artifact directory and refuses to reuse an existing `k8s-us` or
+`k8s-eu` cluster unless an explicit future debug mode is added.
 
 ### 2. Create the two Kind clusters
 
@@ -234,6 +234,28 @@ The target Role in every watched namespace grants `patch` on Secrets without
 `create`, or `delete`. The harness explicitly checks this with
 `kubectl auth can-i` for the controller ServiceAccount. The state Secret's
 normal read/write permissions remain limited to `cnpg-system`.
+
+### 6. Install minimal per-cluster Prometheus
+
+Install one ephemeral Prometheus instance in each Kind cluster after the
+regional controller is ready. This is a test observer, not part of the
+operator's control loop. Each instance consists only of a pinned Prometheus
+Deployment, short-retention ephemeral storage, a ConfigMap, and a ClusterIP
+Service. Do not install Grafana, Alertmanager, Prometheus Operator, dashboards,
+recording rules, or a cross-cluster monitoring stack.
+
+Expose the controller's metrics port through a namespaced ClusterIP Service and
+configure the local Prometheus instance to scrape only that Service at the
+controller's `/metrics` endpoint. The scrape interval must be recorded by the
+harness so metric-change tolerances are deterministic. Prometheus and its
+image version must be pinned and Renovate-managed like the other E2E images.
+
+The harness must wait for Prometheus readiness and verify through its HTTP API
+that the local controller target is `up` before creating any database
+Clusters. It must retain the target-health response, rendered scrape config,
+and redacted metric-query evidence in the run artifacts. Prometheus access from
+the test actor uses a temporary port-forward with distinct local ports for the
+two clusters; no NodePort is introduced.
 
 ## Network and database access
 
@@ -448,11 +470,11 @@ to verify only through the Kubernetes API and `pods/proxy`.
 
 ### Monitoring assertions
 
-The E2E actor scrapes each regional controller's metrics endpoint through a
-temporary port-forward or equivalent local access path. The suite does not
-install Prometheus for the initial implementation; metric semantics are
-validated directly from the exposition format, while alert queries are tested
-separately against representative samples.
+The E2E actor queries the regional Prometheus API through a temporary
+port-forward. It also may scrape the controller endpoint directly when
+diagnosing a mismatch. Metric semantics are validated from Prometheus query
+results and the underlying exposition format; dashboards are not part of this
+test.
 
 For a successful rotation, assert that:
 
@@ -471,6 +493,26 @@ credential leases. The monitoring tests must also confirm that standard
 controller-runtime/client-go metrics are reused rather than shadowed by custom
 reconciliation, queue, or API metrics.
 
+For metric shipping and accuracy, the fixture must:
+
+1. query Prometheus `/api/v1/targets` and require the local controller target
+   to remain healthy;
+2. record counter values before a known action and require exactly the expected
+   delta after Prometheus has scraped the result;
+3. compare the lease time-to-expiration value for the identified Cluster with
+   the Vault-issued lease duration and test-observed issue time, allowing only
+   scrape and clock tolerance;
+4. verify that the lease gauge decreases between scrapes without another
+   Kubernetes event;
+5. verify pending-workflow gauges become zero after the workflow completes;
+6. verify cleanup removes the deleted Cluster's lease-time series; and
+7. verify the same observations through both regional Prometheus instances.
+
+Metric assertions must tolerate process counter resets during the deliberate
+controller-restart scenarios by using Prometheus counter semantics or a fresh
+baseline. They must fail on missing targets, stale samples, unexpected counter
+increments, incorrect Cluster labels, or sensitive metric content.
+
 ## Ordered scenario suite
 
 The following scenarios run serially because later cases intentionally depend
@@ -487,9 +529,11 @@ performs destructive follow-on changes.
 4. Install one HTTP dev-mode Vault in `us` and verify reachability from `us`
    and `eu`.
 5. Build/load/install this operator in both clusters.
-6. Verify all Deployments are Ready, both watch lists are bounded, and no
+6. Install and verify one minimal Prometheus instance per cluster, including
+   an `up` controller scrape target.
+7. Verify all Deployments are Ready, both watch lists are bounded, and no
    database Cluster exists.
-7. Verify controller RBAC, including Secret write-only behavior and absence of
+8. Verify controller RBAC, including Secret write-only behavior and absence of
    cluster-wide bindings.
 
 ### Phase 1: first namespace and initial source/replica pairs

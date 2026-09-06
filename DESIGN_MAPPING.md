@@ -166,7 +166,7 @@ must not appear in logs, Events, metrics, CRD status, or Kubernetes state.
 | Required consecutive absences | Two confirmed absences before cleanup | Integer default of two; no cleanup behavior yet. |
 | State size ceiling | 256 KiB decoded JSON application ceiling | Byte limit default of 256 KiB; future state writes must reject larger state. |
 | Active workers / leader election | One worker initially; normal leader election if multiple replicas | Worker default one; leader election enabled by default for the `cnpg-system` Lease. |
-| Metrics/probe endpoints | Health/readiness probes and metrics endpoint are operational scaffolding | Bind addresses are configurable; endpoints expose no credential data. |
+| Metrics/probe endpoints | Health/readiness probes plus standard dependency metrics and the small custom metric set in the Monitoring and metrics section | Bind addresses are configurable; endpoints expose no credential data. Prometheus is an external consumer, not a controller dependency. |
 
 The configuration package may expose these values for future implementation,
 but the manager entrypoint must not issue Vault requests, patch Kubernetes

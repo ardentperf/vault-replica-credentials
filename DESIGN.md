@@ -867,6 +867,10 @@ failure must not roll back a working replication connection.
 
 ## Monitoring and metrics
 
+Operational scrape, alert, and test guidance is maintained in
+[`MONITORING.md`](MONITORING.md). The requirements below are the normative
+controller contract.
+
 The controller exposes the standard controller-runtime, client-go, and Go
 process/runtime metrics already provided by its dependencies. Do not create
 custom equivalents for reconciliation count, reconciliation failures or
@@ -904,6 +908,13 @@ that remain pending beyond their phase deadline, and leases whose
 configured safety margin. An expiring lease identifies a replica Cluster that
 needs credential remediation; metrics do not themselves initiate a database
 restart.
+
+Prometheus is an external metrics consumer and is not required by the
+controller for correctness. The E2E environment installs one minimal,
+ephemeral Prometheus instance per Kind cluster and verifies that each regional
+controller's metrics endpoint is scraped and queryable. The E2E environment
+does not install dashboards, Alertmanager, recording rules, or a Prometheus
+Operator.
 
 ## RBAC model
 
