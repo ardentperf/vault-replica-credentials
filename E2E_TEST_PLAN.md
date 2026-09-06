@@ -293,21 +293,25 @@ permissions to the controller.
 
 ### Database topology
 
-The first namespace starts with two independent logical databases, each with a
+The first namespace starts with two independent replication flows, each with a
 two-instance source Cluster and a two-instance cross-region replica Cluster.
 Two instances provide a designated primary and one standby for failover,
 replacement, and node-drain scenarios while keeping the test environment
-small enough to run two databases in both regions.
+small enough to run two flows in both regions.
 
-| Logical database | Source primary | Source region | Initial replica | Replica region |
+| Logical flow | Initial source Cluster | Source region | Initial replica Cluster | Replica region |
 | --- | --- | --- | --- | --- |
-| `db-us` | `db-us-primary` | `us` | `db-us-replica` | `eu` |
-| `db-eu` | `db-eu-primary` | `eu` | `db-eu-replica` | `us` |
+| `flow-a` | `db-59a2` | `us` | `db-0fb1` | `eu` |
+| `flow-b` | `db-a7c3` | `eu` | `db-d8e4` | `us` |
 
-The fixture names are stable within a run. Every Cluster's external-cluster
-entry has a unique, explicit name and references its target Secret by name and
-key. The target Secret name is deliberately not a controller configuration
-value; it is read from that Cluster CRD by the future controller.
+The four suffixes above are illustrative run-local values. The harness
+generates a unique four-character lowercase hexadecimal suffix for every
+Cluster and keeps the resulting `db-<hex4>` name stable for that Cluster's
+lifetime. Names do not encode source/replica role or region, so a promotion
+does not make the identity stale. Every Cluster's external-cluster entry has a
+unique, explicit name and references its target Secret by name and key. The
+target Secret name is deliberately not a controller configuration value; it is
+read from that Cluster CRD by the future controller.
 
 ### Static management account
 
@@ -317,6 +321,13 @@ password, for example `vault_replica_admin` and a generated per-run static
 password. The account is created with password/SCRAM authentication and a
 `CREATEROLE` grant sufficient for the Vault database plugin to create and
 revoke `LOGIN` users with `REPLICATION`.
+
+The account is deliberately created with SQL rather than through a CNPG
+declarative account-management resource. If CNPG owns the account, it will
+reconcile the declared password and can overwrite the password that Vault is
+using or has rotated. SQL creation leaves this privileged account outside
+CNPG's ownership while still giving Vault the static initial credentials it
+needs to manage dynamic accounts.
 
 The account's initial password is static for the lifetime of the fixture. The
 suite does not test Vault static-role rotation of this management account. It
@@ -364,7 +375,9 @@ The harness captures the dummy values, Cluster UID, target Secret name/key,
 and source endpoint. It then waits for the region-local controller to issue a
 credential, patch the Secret, patch the username, and allow CNPG to establish
 streaming replication. The test actor may read the Secret to assert the
-result, but the controller must remain write-only.
+result, but the controller must remain write-only. The test actor also runs
+the independent SQL catalog assertions described below; those assertions are
+not delegated to CNPG status.
 
 ## Common assertions and evidence
 
@@ -376,7 +389,8 @@ Every rotation assertion collects a redacted snapshot containing:
   state Secret;
 - the external-cluster username and target Secret resource version;
 - Vault lease status using the test token; and
-- `/pg/status` with `isWalReceiverActive`.
+- `/pg/status` with `isWalReceiverActive`; and
+- source/replica SQL catalog-view results from the fixture actor.
 
 Passwords and Vault tokens are never written to artifacts. Lease IDs may be
 hashed in human-readable artifacts, while the test process retains exact IDs
@@ -389,6 +403,9 @@ For a successful rotation, assert all of the following:
   password;
 - the username and Secret password came from the same Vault response;
 - `/pg/status` reports `isWalReceiverActive: true` for the designated primary;
+- the source primary's `pg_stat_replication` row is in `streaming` state;
+- the replica cluster's designated primary reports recovery mode and an active
+  `pg_stat_wal_receiver` stream;
 - a WAL marker written on the source is visible on the replica;
 - the new lease is current in state; and
 - the prior current lease is revoked after verification.
@@ -396,6 +413,35 @@ For a successful rotation, assert all of the following:
 Also assert that a repeated observation of the same Pod/topology fingerprint
 does not issue a second lease. The harness checks controller logs and Events
 for absence of passwords, Secret data, and Vault tokens.
+
+### Independent SQL replication assertions
+
+The E2E test actor, never the controller, opens PostgreSQL connections through
+the test gateway or a temporary port-forward using the fixture's known
+credentials. It queries PostgreSQL catalog views directly so the replication
+assertion is independent of CloudNativePG status and instance-manager signals.
+The fixture must check the current topology dynamically, not infer roles from
+Cluster names or regions.
+
+For the current source primary, query `pg_stat_replication` and require the
+connection for the replica cluster to be present with `state = 'streaming'`.
+For the replica cluster's designated primary, require `pg_is_in_recovery()` to
+be true and query `pg_stat_wal_receiver`, requiring an active receiver with
+`status = 'streaming'`. The exact application-name and endpoint filters are
+discovered from the current topology and not hard-coded to an initial role.
+
+For each successful rotation and topology transition, write a uniquely tagged
+WAL/data marker on the current source, wait for it to cross the stream, and
+read it from the replica. The fixture records the source and replica LSNs or
+equivalent catalog evidence and fails if the marker is not visible, even when
+CNPG reports Ready or a status endpoint reports healthy. A small
+PostgreSQL-version-aware query adapter preserves these invariants for
+PostgreSQL 18 and later versions without depending on CNPG-specific status
+fields.
+
+These SQL checks are test-only assertions. No PostgreSQL DSN, catalog query,
+or database credential is added to the controller; the controller continues
+to verify only through the Kubernetes API and `pods/proxy`.
 
 ## Ordered scenario suite
 
@@ -423,11 +469,12 @@ performs destructive follow-on changes.
 1. Create `e2e-first` in both clusters.
 2. Add it to the CNPG and controller watch list in both clusters. The resulting
    list is `e2e-bootstrap,e2e-first`.
-3. Create `db-us-primary` in `us` and `db-eu-primary` in `eu`.
+3. Create the generated source Clusters `db-59a2` in `us` and `db-a7c3` in
+   `eu`.
 4. Wait for each source to become Ready, create its static SQL management
    account, expose its primary endpoint, and onboard it to Vault.
-5. Create `db-us-replica` in `eu` pointing to `db-us-primary` and
-   `db-eu-replica` in `us` pointing to `db-eu-primary`.
+5. Create `db-0fb1` in `eu` pointing to `db-59a2` and `db-d8e4` in `us`
+   pointing to `db-a7c3`.
 6. For both replicas, create the dummy password Secret and dummy username as
    part of the fixture setup.
 7. Assert initial dynamic issuance, Secret patching, username patching, WAL
@@ -448,7 +495,7 @@ the released CNPG plugin command:
 
 ```text
 kubectl cnpg --context kind-k8s-eu --namespace e2e-first \
-  promote db-us-replica db-us-replica-2
+  promote db-0fb1 db-0fb1-2
 ```
 
 The candidate instance is selected from the current standby Pods rather than
@@ -487,15 +534,15 @@ failure can distinguish node-drain behavior from a normal Pod restart.
 
 ### Phase 3: cross-region switchover
 
-Use `db-us` for this scenario. The harness performs the distributed-topology
+Use `flow-a` (`db-59a2` and `db-0fb1`) for this scenario. The harness performs
+the distributed-topology
 switchover as a declarative two-step operation:
 
-1. Demote `db-us-primary` in `us` using the CNPG-supported demotion flow.
+1. Demote `db-59a2` in `us` using the CNPG-supported demotion flow.
 2. Wait for and capture its `demotionToken`.
-3. Apply the token with the required `promotionToken` to `db-us-replica` in
-   `eu`.
-4. Wait for `db-us-replica` to become the new primary.
-5. Reconfigure the former `db-us-primary` as the new replica of the promoted
+3. Apply the token with the required `promotionToken` to `db-0fb1` in `eu`.
+4. Wait for `db-0fb1` to become the new primary.
+5. Reconfigure the former `db-59a2` as the new replica of the promoted
    cluster using the CNPG distributed-topology contract. All CR mutations are
    made by the harness, not this controller.
 
@@ -512,19 +559,19 @@ the new primary. Assert that:
 
 ### Phase 4: promote a replica to standalone and rebuild replicas
 
-Use `db-eu-replica` for this independent promotion scenario so the original
-`db-eu-primary` remains available as a source that lost its replica.
+Use `db-d8e4` for this independent promotion scenario so the original
+`db-a7c3` remains available as a source that lost its replica.
 
-1. Promote `db-eu-replica` to a standalone primary and remove its replica
+1. Promote `db-d8e4` to a standalone primary and remove its replica
    declaration according to the supported CNPG workflow.
 2. Ensure it is no longer in replica mode.
 3. Assert that the controller does not patch its username or target Secret,
    revokes any current/pending dynamic replication leases associated with the
    old replica relationship, and removes or settles its state entry according
    to the design cleanup path.
-4. Create a replacement replica Cluster for `db-eu-primary`.
+4. Create a replacement replica Cluster for `db-a7c3`.
 5. Create a new replica Cluster for the newly promoted standalone
-   `db-eu-replica`.
+   `db-d8e4`.
 6. Create fresh dummy Secrets and dummy usernames for both new targets.
 7. Onboard any newly promoted source management account into Vault and verify
    dynamic issuance, WAL receiver activity, WAL markers, and old-lease

@@ -205,6 +205,14 @@ must create users compatible with the configured host, database, TLS mode, and
 any username length or character restrictions. The source-side replication
 slot policy must also tolerate the credential rotation and delayed cleanup.
 
+The privileged PostgreSQL account used by Vault must be provisioned outside
+CloudNativePG's declarative account-management resources. If CNPG owns that
+account, CNPG may reconcile its declared password and overwrite a password
+rotation performed by Vault. The E2E fixture therefore creates the account
+with SQL using a static initial name/password, grants `CREATEROLE`, and leaves
+that account outside CNPG management. Vault rotates only the dynamic accounts
+it creates; this controller does not create or manage either kind of account.
+
 ### CloudNativePG release baseline
 
 The E2E environment uses the latest released CloudNativePG version, not a
@@ -288,6 +296,19 @@ are sufficient for the required in-cluster failover, Pod replacement, and
 node-drain cases while keeping the two-region Kind environment manageable.
 The scenarios run as one ordered suite because later promotion, re-replication,
 namespace, and cleanup cases intentionally depend on earlier state.
+
+The E2E fixture uses role-neutral CNPG Cluster names in the form
+`db-<four-lowercase-hex-digits>`, generated uniquely per run. A name identifies
+one Cluster object, not whether it is currently a source or replica and not
+which region contains it. Names remain unchanged when a replica is promoted;
+new replacement Clusters receive new random names.
+
+The controller never opens a PostgreSQL connection. Its replication check uses
+the Kubernetes API and the instance-manager `/pg/status` endpoint described
+below. Independently, the E2E test actor may connect to PostgreSQL and query
+catalog views to prove streaming replication, so the acceptance test does not
+depend solely on CloudNativePG status fields that may differ in later
+PostgreSQL/CNPG combinations.
 
 The namespace-removal scenario intentionally removes a namespace from this
 controller's watch list while leaving it in CNPG's watch list. This is a
@@ -773,6 +794,17 @@ authentication result. The controller obtains `/pg/status` through the
 Kubernetes API server's `pods/proxy` subresource, as `kubectl cnpg status` does;
 it does not connect directly to PostgreSQL or query `pg_stat_replication`.
 
+The E2E test actor performs a separate SQL-level assertion and must not be
+confused with this controller verification. Against the source primary it
+checks `pg_stat_replication` for a row in `streaming` state. Against the
+replica cluster's designated primary it checks `pg_is_in_recovery()` and
+`pg_stat_wal_receiver` for an active streaming receiver, then verifies that a
+source-side WAL/data marker becomes visible on the replica. These catalog-view
+checks are the independent E2E replication-health gate; CNPG `Cluster` status,
+Pod Ready, and instance-manager status remain supporting/controller workflow
+signals. The fixture uses a version-aware SQL adapter so this invariant does
+not depend on a CNPG status field that may be unavailable with PostgreSQL 19.
+
 If the status endpoint cannot be read, or if `isWalReceiverActive` is false,
 verification fails and the controller retains the pending/current lease state
 according to the stage timeout and retries with backoff. It must not revoke the
@@ -784,6 +816,11 @@ password and confirm that the controller detects that replication did not
 resume. This negative test is required to demonstrate that the verification
 logic observes `isWalReceiverActive: false` when authentication fails, rather
 than merely accepting an unchanged Ready or replica status.
+
+The corresponding E2E fixture assertion must also observe that the source's
+`pg_stat_replication` row is no longer streaming and that the replica's
+`pg_stat_wal_receiver` is not actively streaming. The fixture performs these
+queries; the controller still does not connect to PostgreSQL.
 
 ### 6. Revoke and commit
 

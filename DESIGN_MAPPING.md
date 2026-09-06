@@ -57,7 +57,7 @@ resume the existing pending workflow; they do not issue another lease.
 | Observe Pod objects | Read designated-primary Ready state and topology/restart identity. Pod Ready is supporting evidence only, never authentication proof. |
 | Patch target credential Secret | Read the Secret name and password key from the selected external-cluster entry in the current `Cluster`, then issue a direct JSON merge patch changing only that key. The target namespace permission is `patch` on any Secret; no `GET`, list, watch, create, update, or delete is allowed. A 404 enters `waiting-secret` and keeps the valid pending lease until expiry. |
 | Patch Cluster username | Patch only `externalClusters[].connectionParameters.user`, selecting the configured external-cluster entry by name rather than array index. This is after the password patch and propagation requeue; unrelated CNPG/GitOps-owned fields must remain untouched. |
-| Read instance-manager status | Kubernetes API server `GET` through `pods/proxy` for the designated-primary Pod, requesting `/pg/status`; require `isWalReceiverActive: true`. An unavailable endpoint or false value fails verification and retries. Do not use direct PostgreSQL, `pg_stat_replication`, unchanged Ready, or unchanged Cluster status as proof. |
+| Read instance-manager status | Kubernetes API server `GET` through `pods/proxy` for the designated-primary Pod, requesting `/pg/status`; require `isWalReceiverActive: true`. An unavailable endpoint or false value fails verification and retries. The controller does not use direct PostgreSQL or `pg_stat_replication`; the E2E fixture separately uses SQL catalog views as an independent replication-health assertion. |
 | Read/update/patch state Secret | Decode/write compact `state.json` under `data`, never passwords. Persist lease/workflow transitions immediately after side effects, retry resource-version conflicts, and reject decoded state over the 256 KiB application ceiling. |
 | Leader-election coordination | Use the namespaced Lease in `cnpg-system`; no ClusterRole or cluster-wide lock. |
 | Emit Events or metrics | Emit state transitions, identity/fingerprint, phase, lease expiration, and failure reason without Secret data or passwords. The design's example RBAC permits namespaced Kubernetes Events; metrics may be used instead/also. |
@@ -207,4 +207,7 @@ The plan copies setup conventions only; this repository has no playground
 dependency. Each test cluster uses one control-plane node and three tainted
 PostgreSQL workers. CNPG, Vault, this operator, and the test gateways are
 scheduled on the control plane; the three workers provide alternate placement
-when a primary's node is cordoned and drained.
+when a primary's node is cordoned and drained. The test actor may connect to
+the databases and query PostgreSQL catalog views for independent streaming
+health assertions, but the controller has no PostgreSQL connection or
+credential for that purpose.
