@@ -472,17 +472,19 @@ performs destructive follow-on changes.
 1. Create `e2e-first` in both clusters.
 2. Add it to the CNPG and controller watch list in both clusters. The resulting
    list is `e2e-bootstrap,e2e-first`.
-3. Create the generated source Clusters `db01` in `us` and `db03` in
-   `eu`.
-4. Wait for each source to become Ready, create its static SQL management
-   account, expose its primary endpoint, and onboard it to Vault.
-5. Create `db02` in `eu` pointing to `db01` and `db04` in `us` pointing to
-   `db03`.
-6. For both replicas, create the dummy password Secret and dummy username as
-   part of the fixture setup.
-7. Assert initial dynamic issuance, Secret patching, username patching, WAL
+3. Create source Cluster `db01` in `us`.
+4. Wait for `db01` to become Ready, create its static SQL management account,
+   expose its primary endpoint, and onboard it to Vault.
+5. Create replica Cluster `db02` in `eu` pointing to `db01`, then create its
+   dummy password Secret and dummy username.
+6. Create source Cluster `db03` in `eu`, wait for it to become Ready, create
+   its static SQL management account, expose its primary endpoint, and onboard
+   it to Vault.
+7. Create replica Cluster `db04` in `us` pointing to `db03`, then create its
+   dummy password Secret and dummy username.
+8. Assert initial dynamic issuance, Secret patching, username patching, WAL
    receiver activity, and WAL marker propagation for both directions.
-8. Confirm that the controller in the replica's local region performed the
+9. Confirm that the controller in the replica's local region performed the
    work and that the source region's controller did not mutate a standalone
    primary.
 
@@ -572,8 +574,8 @@ remains available as a source that lost its replica.
    revokes any current/pending dynamic replication leases associated with the
    old replica relationship, and removes or settles its state entry according
    to the design cleanup path.
-4. Create a replacement replica Cluster for `db03`.
-5. Create a new replica Cluster for the newly promoted standalone
+4. Create replacement replica Cluster `db05` for `db03`.
+5. Create new replica Cluster `db06` for the newly promoted standalone
    `db04`.
 6. Create fresh dummy Secrets and dummy usernames for both new targets.
 7. Onboard any newly promoted source management account into Vault and verify
@@ -588,8 +590,8 @@ lease/workflow from a previous incarnation.
 1. Create `e2e-second` in both clusters.
 2. Add it to both CNPG and controller watch lists while retaining
    `e2e-first` and `e2e-bootstrap`.
-3. Create one source/replica database pair in the new namespace, with the
-   source in `us` and replica in `eu`.
+3. Create source Cluster `db07` in `us` and replica Cluster `db08` in `eu`,
+   with `db08` pointing to `db07`.
 4. Create the static SQL management account, expose the source, onboard it to
    Vault, and create the replica's dummy Secret/username.
 5. Verify dynamic credentials and WAL replication.
