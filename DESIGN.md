@@ -437,6 +437,13 @@ for:
 - CloudNativePG instance Pods; and
 - optionally, explicitly managed restart or failover signals.
 
+These are Kubernetes API watches on the underlying resources, not watches on
+Kubernetes `Event` objects. The controller does not watch `core/v1` Nodes or
+`core/v1`/`events.k8s.io` Events. Node drain and maintenance are inferred from
+the designated-primary Pod replacement observed through the Pod watch. Event
+objects may be emitted as an audit signal, but they are not an input to
+rotation.
+
 It does not need to watch the target credential Secret. The password update is
 performed directly with a write-only patch, and the subsequent username patch
 is the CloudNativePG reconciliation trigger.

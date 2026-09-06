@@ -32,6 +32,11 @@ CloudNativePG `Cluster` objects.
 | Leader-election Lease, `cnpg-system` | Controller-runtime leader-election coordination | One active reconciler; no separate distributed per-cluster lock. |
 | Periodic orphan sweep | Every five minutes by default; fresh API read/list rather than cache-only evidence | Compare state identities to watched Cluster objects. Require confirmed 404/absence in two consecutive sweeps before revoking a deleted Cluster's leases. Never interpret a namespace absent from `WATCH_NAMESPACE` as deletion. |
 
+Kubernetes `Event` objects and Nodes are not watched. Events may be emitted by
+the controller, but they are not trigger inputs; node drain or maintenance is
+inferred from the designated-primary Pod replacement. Target credential Secret
+objects are also not watched.
+
 The target credential Secret is deliberately not watched. A blind direct patch
 and handling of `404 NotFound` as `WaitingForCredentialSecret` is the intended
 way to notice a Secret created later. No Secret event should initiate a
