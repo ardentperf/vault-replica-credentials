@@ -297,11 +297,13 @@ node-drain cases while keeping the two-region Kind environment manageable.
 The scenarios run as one ordered suite because later promotion, re-replication,
 namespace, and cleanup cases intentionally depend on earlier state.
 
-The E2E fixture uses role-neutral CNPG Cluster names in the form
-`db-<four-lowercase-hex-digits>`, generated uniquely per run. A name identifies
-one Cluster object, not whether it is currently a source or replica and not
-which region contains it. Names remain unchanged when a replica is promoted;
-new replacement Clusters receive new random names.
+The E2E fixture uses role-neutral CNPG Cluster names from one run-wide,
+monotonically increasing counter: `db01`, `db02`, `db03`, and so on. The
+counter is shared across regions and namespaces, and a new Cluster always gets
+the next name regardless of whether it is initially a source or replica. A
+name identifies one Cluster object, not its current role or region. Names
+remain unchanged when a replica is promoted; replacement or newly added
+Clusters receive the next unused name and names are not reused during a run.
 
 The controller never opens a PostgreSQL connection. Its replication check uses
 the Kubernetes API and the instance-manager `/pg/status` endpoint described

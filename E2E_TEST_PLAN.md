@@ -301,17 +301,20 @@ small enough to run two flows in both regions.
 
 | Logical flow | Initial source Cluster | Source region | Initial replica Cluster | Replica region |
 | --- | --- | --- | --- | --- |
-| `flow-a` | `db-59a2` | `us` | `db-0fb1` | `eu` |
-| `flow-b` | `db-a7c3` | `eu` | `db-d8e4` | `us` |
+| `flow-a` | `db01` | `us` | `db02` | `eu` |
+| `flow-b` | `db03` | `eu` | `db04` | `us` |
 
-The four suffixes above are illustrative run-local values. The harness
-generates a unique four-character lowercase hexadecimal suffix for every
-Cluster and keeps the resulting `db-<hex4>` name stable for that Cluster's
-lifetime. Names do not encode source/replica role or region, so a promotion
-does not make the identity stale. Every Cluster's external-cluster entry has a
-unique, explicit name and references its target Secret by name and key. The
-target Secret name is deliberately not a controller configuration value; it is
-read from that Cluster CRD by the future controller.
+The names above illustrate allocation order: the harness allocates from one
+monotonically increasing counter shared by both regions and all namespaces.
+The first four Cluster objects are `db01`, `db02`, `db03`, and `db04`, followed
+by `db05`, `db06`, and so on. Names do not encode source/replica role or
+region, so a promotion does not make the identity stale. A Cluster keeps its
+name for its lifetime; every replacement or newly added Cluster gets the next
+unused name, and names are not reused during a run. Every Cluster's
+external-cluster entry has a unique, explicit name and references its target
+Secret by name and key. The target Secret name is deliberately not a
+controller configuration value; it is read from that Cluster CRD by the
+future controller.
 
 ### Static management account
 
@@ -469,12 +472,12 @@ performs destructive follow-on changes.
 1. Create `e2e-first` in both clusters.
 2. Add it to the CNPG and controller watch list in both clusters. The resulting
    list is `e2e-bootstrap,e2e-first`.
-3. Create the generated source Clusters `db-59a2` in `us` and `db-a7c3` in
+3. Create the generated source Clusters `db01` in `us` and `db03` in
    `eu`.
 4. Wait for each source to become Ready, create its static SQL management
    account, expose its primary endpoint, and onboard it to Vault.
-5. Create `db-0fb1` in `eu` pointing to `db-59a2` and `db-d8e4` in `us`
-   pointing to `db-a7c3`.
+5. Create `db02` in `eu` pointing to `db01` and `db04` in `us` pointing to
+   `db03`.
 6. For both replicas, create the dummy password Secret and dummy username as
    part of the fixture setup.
 7. Assert initial dynamic issuance, Secret patching, username patching, WAL
@@ -495,7 +498,7 @@ the released CNPG plugin command:
 
 ```text
 kubectl cnpg --context kind-k8s-eu --namespace e2e-first \
-  promote db-0fb1 db-0fb1-2
+  promote db02 db02-2
 ```
 
 The candidate instance is selected from the current standby Pods rather than
@@ -534,15 +537,15 @@ failure can distinguish node-drain behavior from a normal Pod restart.
 
 ### Phase 3: cross-region switchover
 
-Use `flow-a` (`db-59a2` and `db-0fb1`) for this scenario. The harness performs
+Use `flow-a` (`db01` and `db02`) for this scenario. The harness performs
 the distributed-topology
 switchover as a declarative two-step operation:
 
-1. Demote `db-59a2` in `us` using the CNPG-supported demotion flow.
+1. Demote `db01` in `us` using the CNPG-supported demotion flow.
 2. Wait for and capture its `demotionToken`.
-3. Apply the token with the required `promotionToken` to `db-0fb1` in `eu`.
-4. Wait for `db-0fb1` to become the new primary.
-5. Reconfigure the former `db-59a2` as the new replica of the promoted
+3. Apply the token with the required `promotionToken` to `db02` in `eu`.
+4. Wait for `db02` to become the new primary.
+5. Reconfigure the former `db01` as the new replica of the promoted
    cluster using the CNPG distributed-topology contract. All CR mutations are
    made by the harness, not this controller.
 
@@ -559,19 +562,19 @@ the new primary. Assert that:
 
 ### Phase 4: promote a replica to standalone and rebuild replicas
 
-Use `db-d8e4` for this independent promotion scenario so the original
-`db-a7c3` remains available as a source that lost its replica.
+Use `db04` for this independent promotion scenario so the original `db03`
+remains available as a source that lost its replica.
 
-1. Promote `db-d8e4` to a standalone primary and remove its replica
+1. Promote `db04` to a standalone primary and remove its replica
    declaration according to the supported CNPG workflow.
 2. Ensure it is no longer in replica mode.
 3. Assert that the controller does not patch its username or target Secret,
    revokes any current/pending dynamic replication leases associated with the
    old replica relationship, and removes or settles its state entry according
    to the design cleanup path.
-4. Create a replacement replica Cluster for `db-a7c3`.
+4. Create a replacement replica Cluster for `db03`.
 5. Create a new replica Cluster for the newly promoted standalone
-   `db-d8e4`.
+   `db04`.
 6. Create fresh dummy Secrets and dummy usernames for both new targets.
 7. Onboard any newly promoted source management account into Vault and verify
    dynamic issuance, WAL receiver activity, WAL markers, and old-lease
