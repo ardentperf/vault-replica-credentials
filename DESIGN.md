@@ -863,11 +863,47 @@ failure must not roll back a working replication connection.
 | Old lease revocation fails | Keep the new connection; retry revocation through cleanup. |
 | Cluster is promoted during rotation | Stop replica-specific mutation, skip username changes, revoke pending/current replication leases when no longer needed, and require a new lease after any future re-demotion. |
 | Namespace is removed from `WATCH_NAMESPACE` | Leave the state entry and all known leases untouched. Do not run orphan cleanup until the namespace is watched again. |
-| No qualifying event for 32 days | The current Vault credential can expire; alerting is required because lease renewal is intentionally not implemented. |
+| No qualifying event for 32 days | The current Vault credential can expire; expose its remaining lease time and alert on the affected replica Cluster because lease renewal is intentionally not implemented. |
 
-The controller should emit Events or metrics for each state transition,
-including the cluster identity, event fingerprint, phase, Vault lease
-expiration, and failure reason. It must never log passwords or Secret data.
+## Monitoring and metrics
+
+The controller exposes the standard controller-runtime, client-go, and Go
+process/runtime metrics already provided by its dependencies. Do not create
+custom equivalents for reconciliation count, reconciliation failures or
+latency, workqueue depth/retries, Kubernetes API request behavior, process
+health, or runtime resource usage. The exact built-in metric names are verified
+against the pinned controller-runtime version during implementation.
+
+The following small set of custom metrics covers behavior that those libraries
+cannot observe:
+
+| Metric | Type | Labels | Meaning |
+| --- | --- | --- | --- |
+| `vault_replica_rotations_total` | Counter | `result`, `trigger` | Completed rotation outcomes. `result` is `success` or `failure`; `trigger` is a bounded value such as `initialization`, `topology_change`, or `pod_replacement`. |
+| `vault_replica_vault_operations_total` | Counter | `operation`, `result` | Vault operations performed by the controller. `operation` is `issue` or `revoke`; `result` is `success` or `failure`. |
+| `vault_replica_pending_workflows` | Gauge | `phase` | Number of non-terminal workflows currently in each bounded phase. |
+| `vault_replica_current_lease_time_to_expiration_seconds` | Gauge | `namespace`, `cluster` | Remaining lifetime of the current Vault lease for each managed replica Cluster, calculated at scrape time from persisted expiration metadata. |
+
+The lease metric intentionally has one identifying series per active managed
+replica Cluster. Namespace and Cluster identity are required so an alert can
+identify the database that needs attention; they must not be joined by
+lease ID, username, password, Secret name, Pod UID, event fingerprint, Vault
+path, or other unbounded or sensitive values. The series is removed when the
+replica relationship is cleaned up. A missing current lease has no series,
+while a value at or below zero represents an expired lease.
+
+Per-Cluster identity, event fingerprint, phase detail, lease ID, and failure
+diagnostics may be present in redacted structured logs or permitted Kubernetes
+Events. They must not be used as metric labels, and passwords, Secret data,
+Vault tokens, and dynamic usernames must never appear in logs, Events, metrics,
+CRD status, or state.
+
+Monitoring must alert on failed rotations, failed Vault operations, workflows
+that remain pending beyond their phase deadline, and leases whose
+`vault_replica_current_lease_time_to_expiration_seconds` value crosses the
+configured safety margin. An expiring lease identifies a replica Cluster that
+needs credential remediation; metrics do not themselves initiate a database
+restart.
 
 ## RBAC model
 
@@ -1047,6 +1083,12 @@ replication configuration. The controller does not need to manage
 - [ ] Implement per-stage deadlines, retry backoff, Vault issue/lease-duration
       validation, lease revoke, expiration handling, and orphan cleanup. Do
       not implement database lease renewal.
+- [ ] Expose only the domain-specific metrics in the monitoring contract;
+      reuse controller-runtime, client-go, and Go process/runtime metrics for
+      generic controller, queue, API, and process behavior.
+- [ ] Expose per-replica lease time-to-expiration with namespace and Cluster
+      identity labels, without lease IDs, usernames, passwords, Secret names,
+      Pod UIDs, event fingerprints, or Vault paths.
 - [ ] Implement password patch followed by username patch.
 - [ ] Implement verification from the designated primary's `/pg/status`
       response and require `isWalReceiverActive`.
@@ -1057,8 +1099,8 @@ replication configuration. The controller does not need to manage
 - [ ] Test node drain, Pod replacement, CNPG restart, failover, switchover,
       missed events, controller restart, Vault errors, and promotion during
       rotation.
-- [ ] Add alerts for pending rotations, failed revocations, and leases nearing
-      expiration.
+- [ ] Add alerts for failed rotations, failed Vault operations, pending
+      workflows past their deadlines, and leases nearing expiration.
 
 ## References
 

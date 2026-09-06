@@ -446,6 +446,31 @@ These SQL checks are test-only assertions. No PostgreSQL DSN, catalog query,
 or database credential is added to the controller; the controller continues
 to verify only through the Kubernetes API and `pods/proxy`.
 
+### Monitoring assertions
+
+The E2E actor scrapes each regional controller's metrics endpoint through a
+temporary port-forward or equivalent local access path. The suite does not
+install Prometheus for the initial implementation; metric semantics are
+validated directly from the exposition format, while alert queries are tested
+separately against representative samples.
+
+For a successful rotation, assert that:
+
+- `vault_replica_rotations_total` records one successful outcome;
+- the corresponding Vault issue and old-lease revoke operations are counted;
+- the pending workflow gauge eventually returns to zero for that Cluster's
+  phase;
+- `vault_replica_current_lease_time_to_expiration_seconds` identifies the
+  correct namespace and Cluster and reports a positive remaining lifetime; and
+- no metric sample or label contains a password, username, Secret name, Vault
+  token, lease ID, Pod UID, or event fingerprint.
+
+Induce a bounded Vault or verification failure and assert a failure counter and
+pending workflow are observable without creating duplicate rotation metrics or
+credential leases. The monitoring tests must also confirm that standard
+controller-runtime/client-go metrics are reused rather than shadowed by custom
+reconciliation, queue, or API metrics.
+
 ## Ordered scenario suite
 
 The following scenarios run serially because later cases intentionally depend

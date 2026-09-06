@@ -103,8 +103,18 @@ Implement and test:
 - `/healthz`, `/readyz`, and metrics endpoints;
 - safe startup failure for invalid or unsafe configuration.
 
+Use the standard controller-runtime, client-go, and Go process/runtime metrics
+for generic reconciliation, workqueue, Kubernetes API, and process behavior.
+Implement only the domain metrics required by the design: rotation outcomes,
+Vault operation outcomes, pending workflow phase, and per-replica lease time to
+expiration. The lease metric must identify the namespace and Cluster, but must
+not expose lease IDs, usernames, passwords, Secret names, Pod UIDs, event
+fingerprints, or Vault paths. Calculate time to expiration at scrape time so it
+continues to decrease without a Kubernetes event.
+
 Unit tests must cover empty and malformed values, duplicate namespaces,
-insecure HTTP handling, defaults, and log redaction.
+insecure HTTP handling, defaults, log redaction, metric labels, metric cleanup,
+and the absence of sensitive values from metric exposition.
 
 ### 4. Durable state model
 
@@ -295,6 +305,7 @@ Milestone 1 is complete only when all of the following pass:
 - the complete ordered E2E suite from a clean environment;
 - Kubernetes RBAC assertions;
 - credential and token redaction assertions;
+- custom metric and metric-redaction assertions;
 - failure diagnostics and cleanup of only run-owned Kind clusters.
 
 Every gate must be runnable from a local checkout. The implementation should
@@ -319,6 +330,11 @@ Create required GitHub Actions checks for:
 - local Docker image builds;
 - dependency and vulnerability scanning;
 - the complete Kind/CNPG/Vault E2E suite.
+
+Monitoring tests must scrape the controller metrics endpoint locally and
+assert the custom rotation, Vault-operation, pending-workflow, and lease-time
+series. Do not install Prometheus solely for the initial E2E suite; direct
+exposition checks plus local alert-query tests are sufficient.
 
 The workflow must be a thin orchestration layer. Each job calls a checked-in
 Makefile target or test script that can be run locally. Do not put important

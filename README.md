@@ -15,6 +15,11 @@ The detailed E2E design is in [E2E_TEST_PLAN.md](E2E_TEST_PLAN.md). It uses
 patterns from the upstream CloudNativePG playground but provisions its own two
 Kind clusters and does not depend on a playground checkout.
 
+The initial monitoring contract is in [MONITORING.md](MONITORING.md). It uses
+standard controller-runtime/client-go metrics where available and adds only a
+small set of domain metrics for rotations, Vault operations, pending workflows,
+and per-Cluster lease time to expiration.
+
 ## Local checks
 
 ```sh
