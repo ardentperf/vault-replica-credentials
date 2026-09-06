@@ -32,6 +32,13 @@ explicitly out of scope for both milestones.
   usernames in controller state, logs, metrics, or test artifacts.
 - Make all external interactions injectable so unit and integration tests do
   not require a live Kubernetes cluster or Vault instance.
+- Follow a local-first rule: every meaningful CI check must have a local
+  command, and GitHub Actions must orchestrate the same scripts and Makefile
+  targets rather than contain untested CI-only logic.
+- Do not introduce a dependency on GitHub OIDC, GitHub API authentication,
+  cloud credentials, private registries, or GitHub-hosted secrets for build or
+  test execution. The E2E suite uses public images, locally built images, and
+  test-only credentials.
 
 ## Milestone 1: functional operator and complete E2E coverage
 
@@ -290,6 +297,12 @@ Milestone 1 is complete only when all of the following pass:
 - credential and token redaction assertions;
 - failure diagnostics and cleanup of only run-owned Kind clusters.
 
+Every gate must be runnable from a local checkout. The implementation should
+provide Makefile targets for formatting checks, unit/integration tests, race
+tests, static analysis, manifest validation, image builds, and the complete
+E2E suite. A developer must be able to reproduce the same commands used by CI
+without GitHub credentials or a cloud account.
+
 ## Milestone 2: GitHub project and CI
 
 ### 12. Pull-request CI
@@ -307,6 +320,22 @@ Create required GitHub Actions checks for:
 - dependency and vulnerability scanning;
 - the complete Kind/CNPG/Vault E2E suite.
 
+The workflow must be a thin orchestration layer. Each job calls a checked-in
+Makefile target or test script that can be run locally. Do not put important
+build, test, filtering, cleanup, or artifact-redaction behavior only in YAML.
+
+The workflow must not require:
+
+- GitHub OIDC or cloud-provider authentication;
+- GitHub API tokens;
+- repository or environment secrets;
+- access to a private image registry; or
+- a GitHub-only service unavailable to `act`.
+
+Local Docker, public dependency/image sources, and the test-only Vault token
+are sufficient. Local image builds must be loaded directly into the Kind
+clusters rather than pulled from a registry.
+
 The E2E job must:
 
 - run serially;
@@ -319,10 +348,37 @@ The E2E job must:
 Use workflow concurrency cancellation so obsolete PR runs do not consume
 runner capacity.
 
-Run the same checks locally through Makefile targets. Validate the main
-workflow with `act` where practical.
+### 13. Local execution of CI
 
-### 13. Repository quality controls
+Define local commands before finalizing the workflow, for example:
+
+- `make verify` for formatting, vetting, unit/integration tests, and static
+  checks;
+- `make test-race` for race-enabled tests;
+- `make manifests-check` for rendered Kubernetes resources;
+- `make image-build` for all local images;
+- `make e2e` for the complete clean-environment suite; and
+- `make ci` for the complete non-E2E PR gate.
+
+The GitHub workflow should invoke these same targets. Validate it locally with
+`act` for both pull-request and push events using checked-in or generated local
+event fixtures. Exercise the individual fast-test and E2E jobs with the same
+Docker network mode intended for CI, and ensure the E2E cleanup trap works when
+the job is interrupted or fails.
+
+The local `act` run must be part of the implementation checklist for every
+workflow change. Workflow syntax, action composition, environment variables,
+Docker builds, test commands, artifact paths, and failure cleanup must all be
+observable locally. CI caching may improve performance, but correctness must
+not depend on a cache and cache misses must work under `act`.
+
+GitHub branch protection, required-status enforcement, the Actions badge, and
+the final Renovate merge performed by GitHub cannot be fully emulated by
+`act`. Keep those pieces declarative and minimal; validate their configuration
+locally where possible, then verify the actual repository settings with one
+small non-production pull request.
+
+### 14. Repository quality controls
 
 Add:
 
@@ -337,7 +393,7 @@ Add:
 Do not add image publishing, release tags, changelog automation, or deployment
 promotion workflows in this phase.
 
-### 14. Renovate configuration
+### 15. Renovate configuration
 
 Configure Renovate to monitor every dependency source, including:
 
@@ -356,7 +412,7 @@ stored in shell variables or other nonstandard locations. Avoid floating
 `latest` tags. Pin GitHub Actions and update their commit pins through
 Renovate.
 
-### 15. Renovate auto-merge policy
+### 16. Renovate auto-merge policy
 
 Renovate-created pull requests may auto-merge only when:
 
@@ -373,7 +429,7 @@ Major updates should remain manual until the project has sufficient test
 history; expanding auto-merge to major updates requires an explicit policy
 change.
 
-### 16. Milestone 2 completion gates
+### 17. Milestone 2 completion gates
 
 Milestone 2 is complete when:
 
