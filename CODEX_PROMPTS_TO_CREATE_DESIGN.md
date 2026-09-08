@@ -1,3 +1,11 @@
+# Prompt history summary
+
+- Total prompts listed: 73
+- Clearly canceled prompts omitted: 13
+- Time span from first to last retained prompt: 2 days, 21 hours, 6 minutes, 45.898 seconds
+- First retained prompt: 2026-09-05T22:16:25.419Z
+- Last retained prompt: 2026-09-08T19:23:11.317Z
+
 ## Model configuration
 
 Confirmed from each session's recorded turn_context and thread_settings metadata: all seven source sessions examined for this document used model `gpt-5.6-luna` with reasoning effort `xhigh` (Luna XHigh). Six sessions contribute retained prompts below; the seventh contributed only prompts later removed as canceled. No exceptions were found.
