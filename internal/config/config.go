@@ -36,9 +36,7 @@ const (
 	DefaultWorkerCount            = 1
 )
 
-// Config is the complete process configuration needed by the manager and the
-// future reconciliation implementation. Loading it does not make external
-// API calls.
+// Config is the manager and workflow configuration. Loading makes no API calls.
 type Config struct {
 	WatchNamespaces []string
 
@@ -51,19 +49,20 @@ type Config struct {
 	Runtime  RuntimeConfig
 }
 
-// VaultConfig describes the future Vault client boundary. Authentication is
-// intentionally represented as deployment configuration; this scaffold does
-// not select or execute a Vault authentication method.
+// VaultConfig specifies token authentication and bounded HTTPS requests.
 type VaultConfig struct {
+	Token             string `json:"-"`
+	RequestTimeout    time.Duration
 	Address           string
 	AllowInsecureHTTP bool
 	MinLease          time.Duration
 	SafetyMargin      time.Duration
 }
 
-// WorkflowConfig contains persisted-timestamp and stage-deadline settings
-// from DESIGN.md. No workflow is run by the initial scaffold.
+// WorkflowConfig contains durable-delay, deadline and retry settings.
 type WorkflowConfig struct {
+	RetryInitialDelay        time.Duration
+	RetryMaxDelay            time.Duration
 	PasswordPropagationDelay time.Duration
 	VerificationDelay        time.Duration
 	IssueStageTimeout        time.Duration
@@ -112,13 +111,24 @@ func Load(lookup Lookup) (Config, error) {
 	if err := validateVaultAddress(vaultAddress, allowInsecureHTTP); err != nil {
 		return Config{}, err
 	}
+	token, err := requiredValue(lookup, "VAULT_TOKEN")
+	if err != nil {
+		return Config{}, err
+	}
+	if strings.ContainsAny(token, "\r\n\t ") {
+		return Config{}, fmt.Errorf("VAULT_TOKEN must not contain whitespace")
+	}
+	requestTimeout, err := positiveDuration(lookup, "VAULT_REQUEST_TIMEOUT", 10*time.Second)
+	if err != nil {
+		return Config{}, err
+	}
 
 	stateSecretName := valueOr(lookup, "STATE_SECRET_NAME", DefaultStateSecretName)
 	if errs := validation.IsDNS1123Subdomain(stateSecretName); len(errs) > 0 {
 		return Config{}, fmt.Errorf("STATE_SECRET_NAME %q is invalid: %s", stateSecretName, strings.Join(errs, "; "))
 	}
 	stateSecretKey := strings.TrimSpace(valueOr(lookup, "STATE_SECRET_KEY", DefaultStateSecretKey))
-	if stateSecretKey == "" {
+	if len(validation.IsConfigMapKey(stateSecretKey)) > 0 || stateSecretKey == "" {
 		return Config{}, fmt.Errorf("STATE_SECRET_KEY must not be empty")
 	}
 
@@ -149,6 +159,8 @@ func Load(lookup Lookup) (Config, error) {
 		StateSecretName: stateSecretName,
 		StateSecretKey:  stateSecretKey,
 		Vault: VaultConfig{
+			Token:             token,
+			RequestTimeout:    requestTimeout,
 			Address:           vaultAddress,
 			AllowInsecureHTTP: allowInsecureHTTP,
 			MinLease:          minLease,
@@ -160,6 +172,17 @@ func Load(lookup Lookup) (Config, error) {
 }
 
 func loadWorkflow(lookup Lookup) (WorkflowConfig, error) {
+	initial, err := positiveDuration(lookup, "RETRY_INITIAL_DELAY", time.Second)
+	if err != nil {
+		return WorkflowConfig{}, err
+	}
+	maximum, err := positiveDuration(lookup, "RETRY_MAX_DELAY", time.Minute)
+	if err != nil {
+		return WorkflowConfig{}, err
+	}
+	if maximum < initial {
+		return WorkflowConfig{}, fmt.Errorf("RETRY_MAX_DELAY must be at least RETRY_INITIAL_DELAY")
+	}
 	passwordDelay, err := positiveDuration(lookup, "PASSWORD_PROPAGATION_DELAY", DefaultPasswordPropagationDelay)
 	if err != nil {
 		return WorkflowConfig{}, err
@@ -188,12 +211,17 @@ func loadWorkflow(lookup Lookup) (WorkflowConfig, error) {
 	if err != nil {
 		return WorkflowConfig{}, err
 	}
+	if absenceSweeps < 2 {
+		return WorkflowConfig{}, fmt.Errorf("ORPHAN_ABSENCE_SWEEPS must be at least two")
+	}
 	stateMaxBytes, err := positiveInt(lookup, "STATE_MAX_BYTES", DefaultStateMaxBytes)
 	if err != nil {
 		return WorkflowConfig{}, err
 	}
 
 	return WorkflowConfig{
+		RetryInitialDelay:        initial,
+		RetryMaxDelay:            maximum,
 		PasswordPropagationDelay: passwordDelay,
 		VerificationDelay:        verificationDelay,
 		IssueStageTimeout:        issueTimeout,
@@ -209,6 +237,9 @@ func loadRuntime(lookup Lookup) (RuntimeConfig, error) {
 	workers, err := positiveInt(lookup, "WORKERS", DefaultWorkerCount)
 	if err != nil {
 		return RuntimeConfig{}, err
+	}
+	if workers != 1 {
+		return RuntimeConfig{}, fmt.Errorf("WORKERS must be one for the consolidated journal")
 	}
 	leaderElection, err := boolOr(lookup, "LEADER_ELECTION", true)
 	if err != nil {
@@ -263,6 +294,9 @@ func validateVaultAddress(raw string, allowInsecureHTTP bool) error {
 	if parsed.User != nil {
 		return fmt.Errorf("VAULT_ADDR must not include user credentials")
 	}
+	if parsed.RawQuery != "" || parsed.Fragment != "" || (parsed.Path != "" && parsed.Path != "/") {
+		return fmt.Errorf("VAULT_ADDR must not contain a path, query or fragment")
+	}
 	return nil
 }
 
@@ -280,11 +314,15 @@ func requiredValue(lookup Lookup, name string) (string, error) {
 }
 
 func valueOr(lookup Lookup, name, fallback string) string {
-	if value, ok := lookup(name); ok && strings.TrimSpace(value) != "" {
+	if value, ok := lookup(name); ok {
 		return strings.TrimSpace(value)
 	}
 	return fallback
 }
+
+// String prevents accidental structured formatting from exposing authentication.
+func (v VaultConfig) String() string   { return "VaultConfig{redacted}" }
+func (v VaultConfig) GoString() string { return v.String() }
 
 func positiveDuration(lookup Lookup, name string, fallback time.Duration) (time.Duration, error) {
 	raw := valueOr(lookup, name, fallback.String())

@@ -90,6 +90,20 @@ harness.
 
 ## README badge and final verification
 
+The initial auto-merge set is patch, minor, digest and pin dependency updates.
+Major and GitHub Actions updates require manual review. Source, RBAC, design
+and workflow edits must not be included in a dependency auto-merge PR. Require
+code-owner review and the current, conflict-free branch's `ci` status before
+enabling platform auto-merge. `ci` includes security checks and the complete
+E2E suite for every PR. Security updates must satisfy the same restrictions.
+
+Local validation is `make renovate-check`; custom-manager discovery is tested
+without GitHub authentication. Local event fixtures are `.act/pull_request.json`
+and `.act/push.json`, and `make aggregate-check` proves success and deliberate
+failure under `act`. A failed, skipped, cancelled, or incomplete required job
+makes the aggregate fail. These local checks do not enforce branch protection.
+
+
 After Actions is enabled, verify that the README badge points to the actual
 workflow path and default branch. Open a small non-production pull request and
 confirm:

@@ -1,0 +1,23 @@
+rule_files:
+  - alerts.yml
+evaluation_interval: 1m
+tests:
+  - interval: 1m
+    input_series:
+      - series: 'vault_replica_current_lease_time_to_expiration_seconds{namespace="reporting",cluster="db02"}'
+        values: '3600-60x10'
+      - series: 'vault_replica_current_lease_time_to_expiration_seconds{namespace="reporting",cluster="db04"}'
+        values: '-1-60x10'
+    alert_rule_test:
+      - eval_time: 5m
+        alertname: VaultReplicaLeaseExpiring
+        exp_alerts:
+          - exp_labels: {namespace: reporting, cluster: db02, severity: warning}
+            exp_annotations: {summary: 'Lease for reporting/db02 expires soon'}
+          - exp_labels: {namespace: reporting, cluster: db04, severity: warning}
+            exp_annotations: {summary: 'Lease for reporting/db04 expires soon'}
+      - eval_time: 1m
+        alertname: VaultReplicaLeaseExpired
+        exp_alerts:
+          - exp_labels: {namespace: reporting, cluster: db04, severity: critical}
+            exp_annotations: {summary: 'Lease for reporting/db04 has expired'}

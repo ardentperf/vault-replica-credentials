@@ -1,0 +1,26 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": ["config:recommended", ":dependencyDashboard"],
+  "pinDigests": true,
+  "rebaseWhen": "behind-base-branch",
+  "platformAutomerge": true,
+  "automergeType": "pr",
+  "automerge": false,
+  "prCreation": "not-pending",
+  "enabledManagers": ["gomod", "dockerfile", "github-actions", "kubernetes", "custom.regex"],
+  "kubernetes": {"managerFilePatterns": ["/config/.*\\.yaml$/", "/test/e2e/manifests/.*\\.yaml$/"]},
+  "customManagers": [{
+    "customType": "regex",
+    "managerFilePatterns": ["/\\.sh$/"],
+    "matchStrings": ["# renovate: datasource=(?<datasource>[^\\s]+) depName=(?<depName>[^\\s]+)\\s+[A-Z_]+=(?:[^\\s:]+:)?(?<currentValue>[^\\s]+)"],
+    "versioningTemplate": "{{#if (equals datasource 'docker')}}docker{{else}}semver-coerced{{/if}}"
+  }],
+  "packageRules": [
+    {"matchUpdateTypes": ["patch", "minor", "digest", "pin", "pinDigest"], "automerge": true},
+    {"matchUpdateTypes": ["major"], "automerge": false},
+    {"matchManagers": ["github-actions"], "automerge": false},
+    {"matchFileNames": [".github/**", "config/rbac/**"], "automerge": false},
+    {"matchPackageNames": ["ghcr.io/ardentperf/vault-replica-credentials", "ghcr.io/ardentperf/vault-replica-credentials-gateway"], "enabled": false}
+  ],
+  "vulnerabilityAlerts": {"enabled": true}
+}

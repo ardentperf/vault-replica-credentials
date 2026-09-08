@@ -18,8 +18,8 @@ var (
 )
 
 // NewScheme returns the Kubernetes scheme used by the manager. CloudNativePG
-// types will be added when the reconciler is implemented; no CNPG controller
-// or Cluster resource is created by this package.
+// Clusters use unstructured objects with an explicit GVK; this package does not
+// install a CNPG controller or create Cluster resources.
 func NewScheme() (*runtime.Scheme, error) {
 	scheme := runtime.NewScheme()
 	if err := clientgoscheme.AddToScheme(scheme); err != nil {
@@ -28,7 +28,7 @@ func NewScheme() (*runtime.Scheme, error) {
 	return scheme, nil
 }
 
-// CacheOptions scopes the future cache exactly as required by DESIGN.md:
+// CacheOptions scopes the cache exactly as required by DESIGN.md:
 // Cluster and Pod informers fall under the approved namespaces, while Secret
 // and Lease informers are restricted to cnpg-system. Restricting Secret this
 // way prevents target credential Secret watches.
@@ -40,7 +40,8 @@ func CacheOptions(cfg config.Config) cache.Options {
 	systemNamespace := map[string]cache.Config{cfg.SystemNamespace: {}}
 
 	return cache.Options{
-		DefaultNamespaces: targetNamespaces,
+		ReaderFailOnMissingInformer: true,
+		DefaultNamespaces:           targetNamespaces,
 		ByObject: map[client.Object]cache.ByObject{
 			secretCacheObject: {
 				Namespaces: systemNamespace,

@@ -1,0 +1,23 @@
+groups:
+  - name: vault-replica
+    rules:
+      - alert: VaultReplicaLeaseExpiring
+        expr: vault_replica_current_lease_time_to_expiration_seconds < 86400
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: 'Lease for {{ $labels.namespace }}/{{ $labels.cluster }} expires soon'
+      - alert: VaultReplicaLeaseExpired
+        expr: vault_replica_current_lease_time_to_expiration_seconds <= 0
+        labels:
+          severity: critical
+        annotations:
+          summary: 'Lease for {{ $labels.namespace }}/{{ $labels.cluster }} has expired'
+      - alert: VaultReplicaWorkflowStuck
+        expr: vault_replica_pending_workflows > 0
+        for: 10m
+      - alert: VaultReplicaRotationFailed
+        expr: increase(vault_replica_rotations_total{result="failure"}[10m]) > 0
+      - alert: VaultReplicaVaultOperationFailed
+        expr: increase(vault_replica_vault_operations_total{result="failure"}[10m]) > 0

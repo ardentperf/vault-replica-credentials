@@ -1,215 +1,76 @@
-# DESIGN.md implementation mapping
+# Design implementation mapping
 
-This document is the implementation inventory extracted from `DESIGN.md`. It
-is intentionally a mapping, not an implementation of reconciliation behavior.
-The initial scaffold must not create, own, configure, or lifecycle-manage
-CloudNativePG `Cluster` objects.
+The behavior contract is [DESIGN.md](DESIGN.md). The executable acceptance
+mapping is [ACCEPTANCE_MATRIX.md](ACCEPTANCE_MATRIX.md), and actual gate evidence
+belongs in [IMPLEMENTATION_STATUS.md](IMPLEMENTATION_STATUS.md).
 
-## Scope and boundaries
-
-- One controller Deployment runs in `cnpg-system` in each Kubernetes region.
-- `WATCH_NAMESPACE` is the only source of the approved replica-cluster
-  namespaces. It is a required, comma-separated list and is parsed, trimmed,
-  and validated at startup. Missing, empty, malformed, wildcard, or otherwise
-  unrestricted values fail closed.
-- `cnpg-system` is a separate cache/RBAC scope for controller state and leader
-  election. It need not be included in `WATCH_NAMESPACE`.
-- The controller does not watch or manage the CloudNativePG controller
-  Deployment, target credential Secret events, PostgreSQL directly, or etcd.
-- A target credential Secret is provisioned by another workflow. The
-  controller never creates it and never reads its data.
-- No Kubernetes finalizer is used for credential cleanup. Cleanup is driven by
-  the periodic orphan sweep.
-
-## Watchers and event sources
-
-| Source and scope | Watch/use | Candidate work or constraint |
+| Responsibility | Implementation | Verification |
 | --- | --- | --- |
-| CloudNativePG `Cluster` (`postgresql.cnpg.io/v1`), each `WATCH_NAMESPACE` | `get`, `list`, `watch`; patch only after current-object validation | New replica Cluster, replica initialization, promotion/demotion, designated/current-primary topology changes, and cleanup. Generic status updates and the controller's own username patch must not independently trigger rotations. |
-| CloudNativePG instance Pods, each `WATCH_NAMESPACE` | `get`, `list`, `watch` | Initial primary Pod, designated-primary deletion/replacement, in-place restart/container restart episode, and primary replacement caused by drain or maintenance. An old-Pod deletion is only a hint; act after the replacement/designated primary is observed. |
-| Explicitly managed restart/failover signals, each `WATCH_NAMESPACE` | Optional watch only if a concrete signal resource is selected by a later implementation | The design permits explicitly requested restart, failover, or switchover signals but does not name a GVK or API. Do not invent one in the scaffold. |
-| Consolidated state Secret `vault-replica-controller-state`, `cnpg-system` | Normal namespaced cache; `get`, `list`, `watch`, `update`, `patch` | Durable per-cluster lease/workflow journal. The cache permission is intentionally namespace-wide, but only the named Secret is written. |
-| Leader-election Lease, `cnpg-system` | Controller-runtime leader-election coordination | One active reconciler; no separate distributed per-cluster lock. |
-| Periodic orphan sweep | Every five minutes by default; fresh API read/list rather than cache-only evidence | Compare state identities to watched Cluster objects. Require confirmed 404/absence in two consecutive sweeps before revoking a deleted Cluster's leases. Never interpret a namespace absent from `WATCH_NAMESPACE` as deletion. |
+| Fail-closed namespaces, Vault token/TLS, timings | internal/config | configuration tables |
+| Namespace-scoped cache and manager, single worker, leader election | internal/kubernetes/cache.go; internal/operator | cache tests and live RBAC |
+| CNPG replica/distributed topology, predicates, event identity | internal/cnpg | observation tests and ordered failovers |
+| Blind password-only Secret PATCH | internal/kubernetes/api.go | exact HTTP verb/path/body test |
+| Username PATCH selected by external name, atomic version/name guards | internal/kubernetes/api.go | JSON Patch protocol test |
+| Designated-primary status through pods/proxy | internal/kubernetes/api.go | HTTP fixtures and live invalid-password check |
+| Dynamic issue and lease revoke, validated duration | internal/vault | httptest protocol/failure/timeout/redirect cases |
+| Compact v1 journal and optimistic entry updates | internal/state | schema, size, stale-write and no-op tests |
+| Ordered rotation, durable delays, restart recovery | internal/controller | fake-client reconciliation tests |
+| Confirmed absence, promotion, stale UID, namespace scope | internal/controller | sweep/safety tests and ordered cleanup |
+| Bounded custom telemetry, scrape-time expiry | internal/telemetry | exposition tests and regional Prometheus |
+| PostgreSQL SQL provisioning and independent WAL assertions | test/e2e/runner only | ordered live suite |
+| Local checks and CI orchestration | Makefile; scripts; .github/workflows | same targets outside and under act |
 
-Kubernetes `Event` objects and Nodes are not watched. Events may be emitted by
-the controller, but they are not trigger inputs; node drain or maintenance is
-inferred from the designated-primary Pod replacement. Target credential Secret
-objects are also not watched.
+## Watch and permission boundaries
 
-The target credential Secret is deliberately not watched. A blind direct patch
-and handling of `404 NotFound` as `WaitingForCredentialSecret` is the intended
-way to notice a Secret created later. No Secret event should initiate a
-rotation.
+CNPG Cluster and instance Pod events are watched only in WATCH_NAMESPACE.
+Generic status updates and the controller's own username changes are filtered.
+Pod deletion is a hint: an existing relationship waits for its settled, Ready
+designated primary. Initial issuance can precede pg_basebackup and a primary
+Pod, because bootstrap cannot succeed using the deliberately dummy credentials.
 
-Candidate events must be mapped to the current `namespace/name` Cluster queue
-key. Durable trigger identity includes the Cluster UID and the restart or
-topology episode: replacement Pod UID, relevant in-place restart count, or an
-appropriate CloudNativePG primary-transition identity. Duplicate observations
-resume the existing pending workflow; they do not issue another lease.
+No target Secret, Node, or Kubernetes Event informer is registered. The cache
+refuses unregistered informer reads. System Secret and Lease cache scopes are
+limited to cnpg-system. Fresh API reads protect mutation boundaries and orphan
+absence confirmation.
 
-## Kubernetes API interactions
+The target namespace Role grants Cluster get/list/watch/patch, Pod
+get/list/watch, pods/proxy get, Event create/patch, and Secret patch only.
+The system Role grants Secret get/list/watch/update/patch and namespaced Lease
+coordination. The controller creates no ClusterRoleBinding and never creates,
+owns, or lifecycle-manages CNPG Cluster resources.
 
-| Interaction | Scope and semantics |
-| --- | --- |
-| Fetch current Cluster before mutation | Read the current object and confirm replica mode, designated-primary relevance, configured external-cluster name, and target Secret name. Re-check replica mode immediately before the username patch and at every mutation boundary. |
-| List/read Cluster objects for startup and orphan sweeps | Only namespaces currently in `WATCH_NAMESPACE`; stale-incarnation handling compares Cluster UID before replacing state identity. A fresh read and two consecutive confirmed absences are required for deletion cleanup. |
-| Observe Pod objects | Read designated-primary Ready state and topology/restart identity. Pod Ready is supporting evidence only, never authentication proof. |
-| Patch target credential Secret | Read the Secret name and password key from the selected external-cluster entry in the current `Cluster`, then issue a direct JSON merge patch changing only that key. The target namespace permission is `patch` on any Secret; no `GET`, list, watch, create, update, or delete is allowed. A 404 enters `waiting-secret` and keeps the valid pending lease until expiry. |
-| Patch Cluster username | Patch only `externalClusters[].connectionParameters.user`, selecting the configured external-cluster entry by name rather than array index. This is after the password patch and propagation requeue; unrelated CNPG/GitOps-owned fields must remain untouched. |
-| Read instance-manager status | Kubernetes API server `GET` through `pods/proxy` for the designated-primary Pod, requesting `/pg/status`; require `isWalReceiverActive: true`. An unavailable endpoint or false value fails verification and retries. The controller does not use direct PostgreSQL or `pg_stat_replication`; the E2E fixture separately uses SQL catalog views as an independent replication-health assertion. |
-| Read/update/patch state Secret | Decode/write compact `state.json` under `data`, never passwords. Persist lease/workflow transitions immediately after side effects, retry resource-version conflicts, and reject decoded state over the 256 KiB application ceiling. |
-| Leader-election coordination | Use the namespaced Lease in `cnpg-system`; no ClusterRole or cluster-wide lock. |
-| Emit operational telemetry | Use controller-runtime, client-go, and Go process/runtime metrics for generic reconciliation, queue, Kubernetes API, and process behavior. Add only the domain metrics defined in the monitoring contract: rotation outcomes, Vault operation outcomes, pending workflow phase, and per-replica lease time to expiration. Namespace and Cluster labels are allowed only on the lease-expiration metric to identify the affected replica; never expose lease IDs, usernames, passwords, Secret names, Pod UIDs, event fingerprints, or Vault paths. Redacted state-transition and failure context may be emitted as logs or permitted Kubernetes Events. |
+## Journal and recovery
 
-The workflow order is: issue Vault credential, persist pending lease, patch
-password, wait a short timed requeue, patch username, wait/requeue for
-verification, verify WAL receiver activity, revoke the previous lease, then
-promote pending lease to current and record the committed event fingerprint.
-All post-issuance steps are repeatable `ensure` operations. No long blocking
-sleeps or unmanaged background rotation goroutines are allowed.
+The version 1 schema permits only Cluster UID, current lease ID and expiration,
+pending lease metadata, and last committed trigger under namespace/name keys.
+Pending metadata is limited to leaseID, username, expiresAt, stage,
+stageDeadline, triggerID and optional nextActionAt. There is no current
+username, password, resource snapshot, retry counter, or heartbeat in state.
+Unknown versions and fields fail closed; installation provides an empty v1
+journal. The decoded application ceiling defaults to 256 KiB.
 
-## Required Kubernetes permissions
+The controller persists a pending lease before mutation, patches the password,
+persists its propagation delay, patches the username, and persists its
+verification delay. Successful status verification precedes old-lease
+revocation and final commit. Retries retain the journal and use bounded timed
+requeues. Restart before durable password-patch completion revokes/replaces
+the unrecoverable credential; later stages resume without reading the Secret.
+Cross-system issuance/persistence cannot be atomic, and untracked leases are
+bounded by their Vault TTL.
 
-The ServiceAccount is created in `cnpg-system` and is bound with separate
-namespaced Roles only; there is no ClusterRoleBinding.
+Promotion cleanup waits for the primary to stop using its WAL receiver.
+Deletion cleanup requires two consecutive fresh sweep absences. State for
+removed namespaces is untouched. A stale Cluster UID is cleaned before a
+new incarnation can inherit that name.
 
-### Role in every approved target namespace
+## Explicit exclusions
 
-```yaml
-apiGroups: ["postgresql.cnpg.io"]
-resources: ["clusters"]
-verbs: ["get", "list", "watch", "patch"]
-```
+The controller has no PostgreSQL client, database lease renewal, periodic
+rotation, finalizer, cloud dependency, direct etcd access, CNPG Deployment
+watch, or target Secret read. PostgreSQL connections, gateways, database
+provisioning, source role setup and watch-list changes belong to the E2E actor
+or installation owner.
 
-```yaml
-apiGroups: [""]
-resources: ["pods"]
-verbs: ["get", "list", "watch"]
-```
-
-```yaml
-apiGroups: [""]
-resources: ["pods/proxy"]
-verbs: ["get"]
-```
-
-```yaml
-apiGroups: [""]
-resources: ["events"]
-verbs: ["create", "patch"]
-```
-
-```yaml
-apiGroups: [""]
-resources: ["secrets"]
-verbs: ["patch"]
-```
-
-The target Secret name and password key are read from the selected
-`Cluster.spec.externalClusters[].password` reference. Kubernetes RBAC cannot
-express a name prefix or a dynamic `resourceNames` list, so this Role permits
-`patch` on any Secret in each watched namespace. It grants no Secret read,
-list, watch, create, update, or delete permission. Kubernetes RBAC also cannot
-restrict the patch to `data.password`; installations that need protection for
-unrelated Secrets or fields should add a validating admission policy/webhook.
-
-### Role in `cnpg-system`
-
-```yaml
-apiGroups: [""]
-resources: ["secrets"]
-verbs: ["get", "list", "watch", "update", "patch"]
-```
-
-```yaml
-apiGroups: ["coordination.k8s.io"]
-resources: ["leases"]
-verbs: ["get", "list", "watch", "create", "update", "patch"]
-```
-
-The state Secret rule is intentionally namespace-wide to support the normal
-controller-runtime cache. The controller still writes only
-`vault-replica-controller-state`. No permission to read/watch the CNPG
-controller Deployment is required.
-
-## Vault interactions
-
-| Interaction | Contract |
-| --- | --- |
-| Authenticate/maintain controller Vault session | The configured auth method must work unattended for the controller lifetime. The client may re-authenticate or maintain its own token. The design does not select a particular auth endpoint. |
-| Issue database credential | Read the configured database role endpoint, for example `GET /database/creds/<role>`. Consume `username`, `password`, `lease_id`, and `lease_duration`. Persist the lease immediately, but keep the password only in process memory until the target Secret patch succeeds. |
-| Validate lease duration | Treat returned `lease_duration` as authoritative and reject a value below the configured minimum. Do not silently proceed with a short lease. The role targets `default_ttl == effective max_ttl`, normally `768h` (32 days). |
-| Revoke lease | Revoke the full Vault `lease_id` for old current and pending credentials. Already-revoked leases are successful for recovery; failed revocations are retried independently without rolling back verified replication. |
-| Lease renewal | Not implemented. Expiration is the fallback cleanup for an untracked lease/controller outage, and alerting is required as leases approach expiry. |
-
-The Vault identity must be limited to issuing the configured database role and
-revoking the required leases. Vault passwords, lease state, and Secret data
-must not appear in logs, Events, metrics, CRD status, or Kubernetes state.
-
-## Configuration inventory
-
-| Value | Source/contract | Initial scaffold treatment |
-| --- | --- | --- |
-| `WATCH_NAMESPACE` | Required comma-separated approved namespaces; trim and validate; never wildcard/unrestricted | Required configuration; startup fails closed on invalid input and logs only the resulting namespace set. |
-| System namespace | Fixed architecture namespace `cnpg-system` | Defaulted to `cnpg-system`; exposed as a configuration field for testability, with validation. |
-| State Secret name/key | `vault-replica-controller-state` / `state.json` | Defaults from the design; configurable only as an explicit installation setting. |
-| Target credential Secret name/key | Read from each Cluster's selected `externalClusters[].password.name` and `.key` reference; `password` is the expected key for this design | The future controller derives the reference from the current Cluster and blindly patches only that key. The target Role intentionally permits patching any Secret in each watched namespace because the name is dynamic. The scaffold does not read or watch target Secret data. |
-| Vault address and authentication settings | TLS-validated Vault endpoint and unattended auth method are prerequisites; E2E may explicitly allow plain HTTP for the ephemeral dev Vault | Configuration placeholders/interfaces only; no auth or Vault side effect is implemented in this scaffold. |
-| Vault database role/path | Derive the role from the selected source CNPG Cluster name, addressed as `/database/creds/<source-cluster-name>`; the source external-cluster entry uses that same stable name | No global role setting is used. The future Vault client derives the per-source path from the current Cluster reference; no issuance is implemented yet. |
-| Minimum Vault lease duration | Configured lower bound for returned `lease_duration` | Duration configuration with a safe default matching the 32-day design target; future issuance code must enforce it. |
-| Lease safety margin | Configurable margin before `expiresAt` | Duration configuration; future workflow uses it to decide replacement. |
-| Password propagation delay | A few seconds; example is five seconds; persisted as `nextActionAt` | Duration default of five seconds; no timer/requeue behavior yet. |
-| Verification delay | Typically two to five minutes after username patch | Duration default of two minutes; no verification behavior yet. |
-| Stage deadlines | Suggested: one minute for issue/persist and password-to-username transition; five minutes for reconnect verification | Duration defaults; no deadline/retry behavior yet. |
-| Orphan sweep interval | Example five minutes | Duration default of five minutes; no sweep behavior yet. |
-| Required consecutive absences | Two confirmed absences before cleanup | Integer default of two; no cleanup behavior yet. |
-| State size ceiling | 256 KiB decoded JSON application ceiling | Byte limit default of 256 KiB; future state writes must reject larger state. |
-| Active workers / leader election | One worker initially; normal leader election if multiple replicas | Worker default one; leader election enabled by default for the `cnpg-system` Lease. |
-| Metrics/probe endpoints | Health/readiness probes plus standard dependency metrics and the small custom metric set in the Monitoring and metrics section | Bind addresses are configurable; endpoints expose no credential data. Prometheus is an external consumer, not a controller dependency. |
-
-The configuration package may expose these values for future implementation,
-but the manager entrypoint must not issue Vault requests, patch Kubernetes
-objects, or register a reconciliation controller in this scaffolding phase.
-
-## State fields reserved by the design
-
-The future state model may contain only the recovery information that cannot be
-reconstructed from the Cluster: `version`, per-cluster `clusterUID`,
-`currentLeaseID`, `currentExpiresAt`, `pending`, and `lastEvent`. Pending data
-is limited to `leaseID`, `username`, `expiresAt`, `stage`, `stageDeadline`,
-`triggerID`, and optional `nextActionAt`. Cluster generation, observed status,
-resource versions, retry counters, heartbeat/issue/verification timestamps,
-absence counters, and cleanup metadata are not durable state. Valid stages are
-`issued`, `waiting-secret`, `password-patched`, `reconnect-pending`,
-`verified`, and `replacement-backoff`. It must not store passwords, target
-namespace, external cluster name, credential Secret name, or current username.
-
-## Explicitly out of scope
-
-- Creating, updating, deleting, owning, or lifecycle-managing CNPG `Cluster`
-  resources beyond the narrowly scoped future username patch described above.
-- Creating or reading target credential Secret data. The future controller may
-  blindly patch the CRD-referenced Secret name/key, but it must not read or
-  watch the Secret.
-- Watching target credential Secrets to initiate rotation.
-- Watching or managing the CNPG controller Deployment.
-- Direct etcd or PostgreSQL access, direct `primary_conninfo` edits, and
-  database lease renewal.
-- A Kubernetes finalizer, periodic password rotation loop, distributed
-  per-cluster lock, unmanaged goroutine, or cluster-wide RBAC binding.
-
-## E2E plan baseline
-
-The detailed scenario, fixture, assertion, and teardown plan is in
-[E2E_TEST_PLAN.md](E2E_TEST_PLAN.md). It is based on the clean upstream
-`cloudnative-pg/cnpg-playground` checkout at
-`1957b42b445532d284513964f53e3085b4f745f9`, not the local playground checkout.
-The plan copies setup conventions only; this repository has no playground
-dependency. Each test cluster uses one control-plane node and three tainted
-PostgreSQL workers. CNPG, Vault, this operator, and the test gateways are
-scheduled on the control plane; the three workers provide alternate placement
-when a primary's node is cordoned and drained. The test actor may connect to
-the databases and query PostgreSQL catalog views for independent streaming
-health assertions, but the controller has no PostgreSQL connection or
-credential for that purpose.
+The repository prepares CI, dependency automation and administrator documents.
+It does not publish images, create releases, configure GitHub branch rules,
+install Renovate, or grant repository permissions.

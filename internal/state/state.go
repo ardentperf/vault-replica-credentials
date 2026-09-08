@@ -1,6 +1,5 @@
 // Package state defines the compact, password-free state journal described by
-// DESIGN.md. It contains data types only; persistence and reconciliation are
-// intentionally not implemented in the initial scaffold.
+// DESIGN.md, including schema validation and optimistic persistence.
 package state
 
 import "time"

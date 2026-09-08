@@ -151,3 +151,8 @@ The harness uses a fresh baseline or Prometheus counter semantics across
 deliberate controller restarts. It records scrape-target status, rendered
 configuration, query responses, and redacted metric samples as artifacts. It
 does not test dashboards.
+
+The checked-in alert starting points are `test/monitoring/alerts.yml`.
+`make monitoring-check` runs their sample-series tests with the pinned
+Prometheus `promtool` image; it is part of `make ci`. These rules are deployment
+examples and are not installed into the ephemeral E2E observer.

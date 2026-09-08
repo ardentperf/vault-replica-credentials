@@ -1,0 +1,26 @@
+name: Local aggregate fixture
+on:
+  workflow_dispatch:
+    inputs:
+      outcome:
+        default: success
+        type: string
+permissions:
+  contents: read
+jobs:
+  upstream:
+    runs-on: ubuntu-24.04
+    steps:
+      - run: test "$OUTCOME" = success
+        env:
+          OUTCOME: ${{ inputs.outcome }}
+  ci:
+    if: ${{ always() }}
+    needs: upstream
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - name: Evaluate aggregate
+        run: bash scripts/aggregate.sh
+        env:
+          NEEDS_JSON: ${{ toJSON(needs) }}

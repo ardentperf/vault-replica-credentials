@@ -2,10 +2,10 @@
 
 ## Status
 
-The plan decisions are accepted for implementation. The current repository
-scaffold remains deliberately non-reconciling; Vault issuance and the ordered
-scenario runner will be added only with the controller behavior described in
-`DESIGN.md`.
+The plan decisions are accepted for implementation. The controller and ordered
+runner implement the behavior described in `DESIGN.md`; actual acceptance
+results are tracked in `IMPLEMENTATION_STATUS.md`. Resolved implementation
+details are recorded in `ACCEPTANCE_MATRIX.md`.
 
 The following choices are accepted for this plan: host-network gateways rather
 than NodePorts; Vault roles derived from source CNPG Cluster names; a static
@@ -344,8 +344,11 @@ After each new source Cluster is Ready, the harness uses SQL to create a
 dedicated static management account with a fixed test-only name and initial
 password, for example `vault_replica_admin` and a generated per-run static
 password. The account is created with password/SCRAM authentication and a
-`CREATEROLE` grant sufficient for the Vault database plugin to create and
-revoke `LOGIN` users with `REPLICATION`.
+`CREATEROLE` grant. PostgreSQL additionally requires superuser authority to
+assign `REPLICATION`. The fixture provides narrow `SECURITY DEFINER` functions,
+owned by PostgreSQL's administrative account, for creating and dropping only
+Vault-named dynamic roles. Execution is granted only to the SQL-provisioned
+management account; Vault itself is not made a superuser.
 
 The account is deliberately created with SQL rather than through a CNPG
 declarative account-management resource. If CNPG owns the account, it will
@@ -702,16 +705,17 @@ controller does nothing because the namespace is outside its own watch scope.
 Use the Phase 5 database pair so that the first-namespace state remains
 available for final namespace assertions.
 
-1. Delete the source and replica CNPG `Cluster` resources for the second-
-   namespace database through the test harness.
+1. Delete the replica CNPG `Cluster` resource for the second-namespace
+   database through the test harness. Keep its source available until lease
+   revocation finishes: Vault must execute the source's revocation SQL.
 2. Leave the target Secret in place to verify that this controller does not
    delete it.
 3. Wait for the controller's default five-minute orphan sweep and the required
    two consecutive confirmed absences.
 4. Assert that all known dynamic leases for the deleted replica are revoked,
    the corresponding state entries are removed, and no finalizer was needed.
-5. Verify that the source-side Vault database configuration can be removed by
-   the fixture cleanup after the controller has finished lease cleanup.
+5. Delete the source Cluster, then verify that its Vault database configuration
+   can be removed after the controller has finished lease cleanup.
 
 The test must allow the design's normal cleanup delay—approximately ten
 minutes plus API/Vault time—rather than reducing the configured sweep and
@@ -728,6 +732,12 @@ After a successful rotation, deliberately replace the target Secret's
 password with an invalid test value using the test actor, while retaining the
 Cluster username. Trigger or observe the corresponding reconnect window and
 assert that `/pg/status` reports `isWalReceiverActive: false`.
+
+Fixture credential Secrets carry `cnpg.io/reload: "true"` so a password-only
+edit reloads CNPG's external passfile. The actor requires both SQL and the
+instance status endpoint to report sustained inactivity after disconnecting
+only that replica's upstream sender; a momentary disconnect is not proof of
+failed password authentication.
 
 The controller must not treat an unchanged Ready condition as authentication
 proof, must not revoke the still-needed valid lease prematurely, and must not

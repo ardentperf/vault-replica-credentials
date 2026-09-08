@@ -3,3 +3,5 @@
 bin
 coverage.out
 tmp
+.tools
+artifacts

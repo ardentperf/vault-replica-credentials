@@ -84,6 +84,30 @@ func validEnvironment() map[string]string {
 	return map[string]string{
 		"WATCH_NAMESPACE": "reporting",
 		"VAULT_ADDR":      "https://vault.example",
+		"VAULT_TOKEN":     "test-token",
+	}
+}
+
+func TestUnsafeConfiguration(t *testing.T) {
+	for key, values := range map[string][]string{
+		"VAULT_TOKEN":           {"", " token\nvalue"},
+		"VAULT_ADDR":            {"https://vault.example/?token=secret", "https://vault.example/#secret", "https://user:secret@vault.example"},
+		"VAULT_REQUEST_TIMEOUT": {"0s", "bad", ""},
+		"RETRY_INITIAL_DELAY":   {"0s", "-1s"},
+		"RETRY_MAX_DELAY":       {"1ms"},
+		"WORKERS":               {"2"},
+		"STATE_SECRET_KEY":      {"a/b"},
+		"ORPHAN_ABSENCE_SWEEPS": {"1"},
+	} {
+		for _, value := range values {
+			t.Run(key+value, func(t *testing.T) {
+				env := validEnvironment()
+				env[key] = value
+				if _, err := Load(mapLookup(env)); err == nil {
+					t.Fatal("unsafe configuration accepted")
+				}
+			})
+		}
 	}
 }
 
