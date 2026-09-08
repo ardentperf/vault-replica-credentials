@@ -181,7 +181,7 @@ Injected AGENTS.md/environment context and standalone <turn_aborted> markers are
 Session markers for the intertwined project sessions:
 
 - 🔵 `01a07621-5829-7c31-8d77-5f9947451a2d`
-- 🟣 `01a07774-285e-7690-be2c-75e5e5908a47`
+- 🟡 `01a07774-285e-7690-be2c-75e5e5908a47`
 - 🟢 `01a0788a-7597-7e80-8908-f58dc704f315`
 - 🟠 `01a07891-a0c6-7f93-93d7-270634d93ee2`
 - 🔴 `01a08278-a8da-7ce3-a024-c083e788b87d`
@@ -226,7 +226,7 @@ Source session: /home/ubuntu/.codex/sessions/2026/09/06/rollout-2026-09-06T09-51
 
 <sub>2026-09-06T16:01:40.474Z</sub>
 
-🟣 Session ID: 01a07774-285e-7690-be2c-75e5e5908a47
+🟡 Session ID: 01a07774-285e-7690-be2c-75e5e5908a47
 
 Source session: /home/ubuntu/.codex/sessions/2026/09/06/rollout-2026-09-06T16-01-36-01a07774-285e-7690-be2c-75e5e5908a47.jsonl
 
@@ -234,7 +234,7 @@ Source session: /home/ubuntu/.codex/sessions/2026/09/06/rollout-2026-09-06T16-01
 
 <sub>2026-09-06T16:08:36.572Z</sub>
 
-🟣 Session ID: 01a07774-285e-7690-be2c-75e5e5908a47
+🟡 Session ID: 01a07774-285e-7690-be2c-75e5e5908a47
 
 Source session: /home/ubuntu/.codex/sessions/2026/09/06/rollout-2026-09-06T16-01-36-01a07774-285e-7690-be2c-75e5e5908a47.jsonl
 
@@ -242,7 +242,7 @@ Source session: /home/ubuntu/.codex/sessions/2026/09/06/rollout-2026-09-06T16-01
 
 <sub>2026-09-06T16:13:31.204Z</sub>
 
-🟣 Session ID: 01a07774-285e-7690-be2c-75e5e5908a47
+🟡 Session ID: 01a07774-285e-7690-be2c-75e5e5908a47
 
 Source session: /home/ubuntu/.codex/sessions/2026/09/06/rollout-2026-09-06T16-01-36-01a07774-285e-7690-be2c-75e5e5908a47.jsonl
 
