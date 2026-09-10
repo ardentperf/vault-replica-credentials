@@ -1,0 +1,47 @@
+# Rendered by test/e2e/run.sh. The bootstrap role is test-only and is replaced
+# by a Vault-issued replication credential only after a Pod is observable.
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  name: __CLUSTER_NAME__
+  namespace: __NAMESPACE__
+  labels:
+    app.kubernetes.io/part-of: vault-replica-credentials-e2e
+spec:
+  imageName: __POSTGRES_IMAGE__
+  instances: 2
+  bootstrap:
+    pg_basebackup:
+      source: __SOURCE_NAME__
+  replica:
+    primary: __PRIMARY_NAME__
+    source: __SOURCE_NAME__
+  externalClusters:
+    - name: __SOURCE_NAME__
+      connectionParameters:
+        host: __SOURCE_HOST__
+        port: "__SOURCE_PORT__"
+        user: __BOOTSTRAP_USER__
+        dbname: postgres
+        sslmode: disable
+      password:
+        name: __PASSWORD_SECRET__
+        key: password
+  storage:
+    size: 1Gi
+  affinity:
+    nodeSelector:
+      postgres.node.kubernetes.io: ""
+    tolerations:
+      - key: node-role.kubernetes.io/postgres
+        operator: Exists
+        effect: NoSchedule
+  # A Cluster created from pg_basebackup can later become the distributed
+  # primary. Keep the same non-TLS SCRAM rules as a source Cluster so an old
+  # primary can attach as its streaming replica after cross-region promotion.
+  postgresql:
+    parameters:
+      password_encryption: scram-sha-256
+    pg_hba:
+      - host all all all scram-sha-256
+      - host replication all all scram-sha-256

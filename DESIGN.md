@@ -209,9 +209,12 @@ The privileged PostgreSQL account used by Vault must be provisioned outside
 CloudNativePG's declarative account-management resources. If CNPG owns that
 account, CNPG may reconcile its declared password and overwrite a password
 rotation performed by Vault. The E2E fixture therefore creates the account
-with SQL using a static initial name/password, grants `CREATEROLE`, and leaves
-that account outside CNPG management. Vault rotates only the dynamic accounts
-it creates; this controller does not create or manage either kind of account.
+with SQL using a static initial name/password, grants `CREATEROLE` and
+`REPLICATION`, and leaves that account outside CNPG management. PostgreSQL
+requires a role that creates `REPLICATION` roles to hold `REPLICATION` itself
+(or be a superuser), so this is the least-privileged viable alternative to a
+superuser management account. Vault rotates only the dynamic accounts it
+creates; this controller does not create or manage either kind of account.
 
 ### CloudNativePG release baseline
 
@@ -840,8 +843,10 @@ queries; the controller still does not connect to PostgreSQL.
 
 ### 6. Revoke and commit
 
-If `currentLeaseID` is present, revoke the old dynamic credential using its
-full Vault `lease_id`, not only the generated username. Treat an
+If `currentLeaseID` is present, synchronously revoke the old dynamic credential
+using its full Vault `lease_id`, not only the generated username. Vault's
+asynchronous revoke acknowledgement is insufficient because a database plugin
+can fail its `DROP ROLE` after the request has been queued. Treat an
 already-revoked lease as success for recovery purposes. On the first rotation
 of a newly provisioned Cluster, `currentLeaseID` may be empty because the
 initial username/password were provisioned outside Vault; skip old-lease

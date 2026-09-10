@@ -80,10 +80,24 @@ func TestLoadAllowsExplicitInsecureHTTPForE2E(t *testing.T) {
 	}
 }
 
+func TestLoadRequiresVaultTokenAndValidRetryPolicy(t *testing.T) {
+	env := validEnvironment()
+	delete(env, "VAULT_TOKEN")
+	if _, err := Load(mapLookup(env)); err == nil {
+		t.Fatal("Load() accepted missing VAULT_TOKEN")
+	}
+	env = validEnvironment()
+	env["VAULT_MAX_RETRIES"] = "-1"
+	if _, err := Load(mapLookup(env)); err == nil {
+		t.Fatal("Load() accepted negative VAULT_MAX_RETRIES")
+	}
+}
+
 func validEnvironment() map[string]string {
 	return map[string]string{
 		"WATCH_NAMESPACE": "reporting",
 		"VAULT_ADDR":      "https://vault.example",
+		"VAULT_TOKEN":     "test-token-not-for-logs",
 	}
 }
 

@@ -22,6 +22,20 @@ Confirm that the repository contains and locally validates:
 No cloud credentials, GitHub OIDC provider, private registry credential, or
 repository secret should be required for the build and test workflows.
 
+Before enabling the workflow, validate both checked-in event fixtures locally:
+
+```sh
+act pull_request -e .github/workflows/events/pull-request.json \
+  -W .github/workflows/ci.yml -j verify
+act push -e .github/workflows/events/push.json \
+  -W .github/workflows/ci.yml -j ci
+```
+
+Run the E2E job separately with the Docker network mode used by the local
+runner. Exercise the aggregate `ci` job once with successful dependencies and
+once with an intentionally failing dependency fixture; it must complete and
+fail rather than be skipped.
+
 ## GitHub Actions
 
 1. Enable GitHub Actions for the repository.

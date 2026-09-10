@@ -41,6 +41,19 @@ spec:
               value: https://vault.vault.svc:8200
             - name: VAULT_ALLOW_INSECURE_HTTP
               value: "false"
+            - name: VAULT_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  # This Secret is installed separately. It is intentionally
+                  # not part of this repository or controller state.
+                  name: vault-replica-controller-vault
+                  key: token
+            - name: VAULT_REQUEST_TIMEOUT
+              value: 15s
+            - name: VAULT_MAX_RETRIES
+              value: "3"
+            - name: VAULT_RETRY_DELAY
+              value: 1s
             - name: STATE_SECRET_NAME
               value: vault-replica-controller-state
           ports:

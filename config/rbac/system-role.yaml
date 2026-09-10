@@ -7,6 +7,11 @@ rules:
   - apiGroups: [""]
     resources: ["secrets"]
     verbs: ["get", "list", "watch", "update", "patch"]
+  # controller-runtime's leader election emits a normal Event in the system
+  # namespace. This does not create an Event informer or expand target access.
+  - apiGroups: [""]
+    resources: ["events"]
+    verbs: ["create", "patch"]
   - apiGroups: ["coordination.k8s.io"]
     resources: ["leases"]
     verbs: ["get", "list", "watch", "create", "update", "patch"]

@@ -9,7 +9,7 @@ scenario runner will be added only with the controller behavior described in
 
 The following choices are accepted for this plan: host-network gateways rather
 than NodePorts; Vault roles derived from source CNPG Cluster names; a static
-SCRAM management account with `CREATEROLE`; a dev-mode Vault root token; and
+SCRAM management account with `CREATEROLE` and `REPLICATION`; a dev-mode Vault root token; and
 controller-only namespace removal while CNPG continues watching the namespace;
 PostgreSQL 18; two instances per source/replica Cluster; Distributed Topology
 from creation; and one ordered suite with checkpoints.
@@ -343,9 +343,11 @@ future controller.
 After each new source Cluster is Ready, the harness uses SQL to create a
 dedicated static management account with a fixed test-only name and initial
 password, for example `vault_replica_admin` and a generated per-run static
-password. The account is created with password/SCRAM authentication and a
-`CREATEROLE` grant sufficient for the Vault database plugin to create and
-revoke `LOGIN` users with `REPLICATION`.
+password. The account is created with password/SCRAM authentication and with
+`CREATEROLE` and `REPLICATION`. PostgreSQL requires the creator of a
+`REPLICATION` role to carry that attribute (unless it is superuser), making
+this the least-privileged account suitable for the Vault database plugin to
+create and revoke `LOGIN` users with `REPLICATION`.
 
 The account is deliberately created with SQL rather than through a CNPG
 declarative account-management resource. If CNPG owns the account, it will
@@ -362,7 +364,10 @@ The source Cluster configuration must permit password/SCRAM connections for
 the management account and Vault-issued accounts, including replication
 connections in `pg_hba.conf`. TLS is disabled for this test path and client
 configuration uses password authentication; no certificate credentials are
-created or mounted.
+created or mounted. The base-backup replica fixture carries the same rules:
+after a cross-region promotion it becomes a source for the demoted former
+primary, so relying only on the original source manifest would reject that
+incoming WAL connection.
 
 ### Vault database engine
 
@@ -616,9 +621,21 @@ switchover as a declarative two-step operation:
 2. Wait for and capture its `demotionToken`.
 3. Apply the token with the required `promotionToken` to `db02` in `eu`.
 4. Wait for `db02` to become the new primary.
-5. Reconfigure the former `db01` as the new replica of the promoted
-   cluster using the CNPG distributed-topology contract. All CR mutations are
-   made by the harness, not this controller.
+5. Quiesce the two fixture controllers during the endpoint handoff. The
+   test-only gateways name individual source clusters rather than a production
+   HA service, so this prevents a controller from attempting cleanup against
+   the read-only former source while CNPG promotes the new one.
+6. Repoint the fixture's existing Vault `db01` database connection at the
+   promoted writable `db02` gateway before waiting for cleanup of leases
+   issued under the former source name. The replicated PostgreSQL role data is
+   unchanged; this only keeps Vault revocation traffic off the read-only old
+   primary.
+7. Wait for the former `db01`, already reconfigured as a replica by the
+   distributed-topology contract, to be Ready with its existing static WAL
+   receiver active. Then resume the controllers to perform cleanup and the
+   new dynamic rotation. This prevents the bounded dynamic reconnect workflow
+   from being spent on the preceding topology convergence. All CR mutations
+   are made by the harness, not this controller.
 
 The final topology must have the former primary demoted and streaming from
 the new primary. Assert that:
@@ -650,6 +667,11 @@ remains available as a source that lost its replica.
 7. Onboard any newly promoted source management account into Vault and verify
    dynamic issuance, WAL receiver activity, WAL markers, and old-lease
    revocation for both new replica relationships.
+
+When reusing a standalone that originated from `pg_basebackup`, retain the
+external-cluster entry named by its immutable bootstrap source while adding the
+new distributed-topology entries. CNPG continues to validate that bootstrap
+reference on later Cluster updates.
 
 The test confirms that a Cluster UID or name reuse cannot inherit a stale
 lease/workflow from a previous incarnation.
@@ -683,9 +705,14 @@ deleted.
    watches `e2e-first` and remains Ready.
 3. Confirm that the state entries and all known Vault leases for
    `e2e-first` remain unchanged and that no cleanup/revocation occurs.
-4. Trigger a failover in one of the first-namespace replica Clusters.
+4. Replace that replica's target password with an invalid fixture value, then
+   trigger a failover in one of the first-namespace replica Clusters. Existing
+   PostgreSQL streaming sessions retain their negotiated credentials, so the
+   failover forces the new WAL receiver to authenticate with the invalid
+   password.
 5. Assert that no credential rotation occurs while that namespace is outside
-   the controller watch list, while existing replication continues.
+   the controller watch list, and that the receiver remains inactive rather
+   than treating Cluster readiness as successful authentication.
 6. Keep `e2e-first` in CNPG's watch list and re-add it to this controller's
    watch list, then wait for both caches and controllers to become Ready.
 7. Trigger another supported failover in that replica and assert that a
@@ -702,8 +729,9 @@ controller does nothing because the namespace is outside its own watch scope.
 Use the Phase 5 database pair so that the first-namespace state remains
 available for final namespace assertions.
 
-1. Delete the source and replica CNPG `Cluster` resources for the second-
-   namespace database through the test harness.
+1. Delete the replica CNPG `Cluster`, then wait for its dynamic lease cleanup
+   while the source remains online for Vault's database-plugin revocation SQL;
+   delete the source Cluster after that cleanup succeeds.
 2. Leave the target Secret in place to verify that this controller does not
    delete it.
 3. Wait for the controller's default five-minute orphan sweep and the required

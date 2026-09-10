@@ -1,0 +1,8 @@
+# Replace this maintainer entry with the owning GitHub team during the
+# administrator handoff described in GITHUB_SETUP.md.
+* @ardentperf
+
+/internal/controller/ @ardentperf
+/test/e2e/ @ardentperf
+/.github/ @ardentperf
+/renovate.json @ardentperf

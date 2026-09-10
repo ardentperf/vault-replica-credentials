@@ -1,3 +1,5 @@
 /bin/
 /coverage.out
 /vault-replica-controller
+/cnpg-test-gateway
+/test/e2e/artifacts/

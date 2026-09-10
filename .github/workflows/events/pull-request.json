@@ -1,0 +1,9 @@
+{
+  "pull_request": {
+    "number": 1,
+    "head": {"ref": "local"},
+    "base": {"ref": "main"}
+  },
+  "ref": "refs/pull/1/merge",
+  "repository": {"full_name": "ardentperf/vault-replica-credentials"}
+}

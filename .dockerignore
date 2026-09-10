@@ -3,3 +3,4 @@
 bin
 coverage.out
 tmp
+test/e2e/artifacts

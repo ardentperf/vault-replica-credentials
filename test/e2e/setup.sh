@@ -14,7 +14,10 @@ CNPG_VERSION="${CNPG_VERSION:-v1.30.0}"
 CNPG_VERSION_BARE="${CNPG_VERSION#v}"
 CNPG_RELEASE_BRANCH="${CNPG_VERSION_BARE%.*}"
 CNPG_WATCH_NAMESPACE="${CNPG_WATCH_NAMESPACE:-e2e-bootstrap}"
+# PostgreSQL 18 is deliberate test coverage, not an ambient CNPG default.
+POSTGRES_IMAGE="${POSTGRES_IMAGE:-ghcr.io/cloudnative-pg/postgresql:18.1-standard-trixie}"
 VAULT_IMAGE="${VAULT_IMAGE:-hashicorp/vault:1.20.4}"
+PROMETHEUS_IMAGE="${PROMETHEUS_IMAGE:-prom/prometheus:v3.6.0}"
 VAULT_HOST_PORT="${VAULT_HOST_PORT:-18200}"
 VAULT_ROOT_TOKEN="${VAULT_ROOT_TOKEN:-e2e-dev-root-token}"
 OPERATOR_IMAGE="${OPERATOR_IMAGE:-ghcr.io/ardentperf/vault-replica-credentials:e2e}"
@@ -74,12 +77,25 @@ collect_logs() {
 		--all-containers=true >"${ARTIFACT_DIR}/vault.log" 2>&1
 }
 
+redact_artifacts() {
+	local file
+	local escaped_token
+	escaped_token=$(printf '%s' "${VAULT_ROOT_TOKEN}" | sed 's/[.[\*^$\\/&]/\\&/g')
+	# The fixture's known token is never a valid test result. Replace it before
+	# an artifact is retained, including on failure paths. Controller logs must
+	# already omit credentials; this is a final defense for fixture output.
+	while IFS= read -r -d '' file; do
+		sed -i "s/${escaped_token}/[REDACTED]/g" "${file}" || true
+	done < <(find "${ARTIFACT_DIR}" -type f -print0)
+}
+
 cleanup() {
 	exit_code=$?
 	if [[ "${exit_code}" -ne 0 ]]; then
 		log "setup failed; collecting diagnostics in ${ARTIFACT_DIR}"
 		collect_logs
 	fi
+	redact_artifacts
 	if [[ "${KEEP_E2E_CLUSTERS}" == "true" ]]; then
 		log "keeping run-owned Kind clusters; artifacts are in ${ARTIFACT_DIR}"
 	else
@@ -96,7 +112,8 @@ trap cleanup EXIT
 
 require_commands() {
 	local command_name
-	for command_name in docker kind kubectl curl go; do
+	local cnpg_plugin_version
+	for command_name in docker kind kubectl curl jq go; do
 		command -v "${command_name}" >/dev/null || {
 			log "missing required command: ${command_name}"
 			return 1
@@ -106,6 +123,11 @@ require_commands() {
 		log "kubectl cnpg plugin is required"
 		return 1
 	}
+	cnpg_plugin_version=$(kubectl cnpg version 2>/dev/null | sed -n 's/.*Version:\([0-9][0-9.]*\).*/\1/p' | head -n 1)
+	if [[ "${cnpg_plugin_version}" != "${CNPG_VERSION_BARE}" ]]; then
+		log "kubectl cnpg version ${cnpg_plugin_version:-unknown} does not match pinned CNPG ${CNPG_VERSION_BARE}; run test/e2e/install-tools.sh"
+		return 1
+	fi
 }
 
 record_versions() {
@@ -117,6 +139,7 @@ record_versions() {
 		go version
 		echo "CNPG_VERSION=${CNPG_VERSION}"
 		echo "CNPG_RELEASE_BRANCH=${CNPG_RELEASE_BRANCH}"
+		echo "POSTGRES_IMAGE=${POSTGRES_IMAGE}"
 	} >"${ARTIFACT_DIR}/versions.txt" 2>&1 || true
 }
 
@@ -190,8 +213,15 @@ install_cnpg() {
 	manifest="${ARTIFACT_DIR}/cnpg-${region}.yaml"
 	log "installing CloudNativePG ${CNPG_VERSION} in ${context}"
 	kubectl cnpg install generate --version "${CNPG_VERSION_BARE}" \
-		--watch-namespace "${CNPG_WATCH_NAMESPACE}" --control-plane >"${manifest}"
+		--watch-namespace "${CNPG_WATCH_NAMESPACE}" --image "${POSTGRES_IMAGE}" --control-plane >"${manifest}"
 	kubectl --context "${context}" apply --server-side -f "${manifest}"
+	# The released operator reloads these documented configuration values only
+	# after restart. Keep the list bounded before any database CR is created.
+	kubectl --context "${context}" -n cnpg-system create configmap cnpg-controller-manager-config \
+		--from-literal=WATCH_NAMESPACE="${CNPG_WATCH_NAMESPACE}" \
+		--from-literal=POSTGRES_IMAGE_NAME="${POSTGRES_IMAGE}" \
+		--dry-run=client -o yaml | kubectl --context "${context}" apply -f -
+	kubectl --context "${context}" -n cnpg-system rollout restart deployment/cnpg-controller-manager
 	kubectl --context "${context}" -n cnpg-system rollout status \
 		deployment/cnpg-controller-manager --timeout=5m
 	kubectl --context "${context}" get crd clusters.postgresql.cnpg.io >/dev/null
@@ -203,6 +233,11 @@ render_vault_manifest() {
 		-e "s|__VAULT_ROOT_TOKEN__|${VAULT_ROOT_TOKEN}|g" \
 		-e "s|__VAULT_HOST_PORT__|${VAULT_HOST_PORT}|g" \
 		"${E2E_DIR}/manifests/vault.yaml"
+}
+
+render_prometheus_manifest() {
+	sed -e "s|__PROMETHEUS_IMAGE__|${PROMETHEUS_IMAGE}|g" \
+		"${E2E_DIR}/manifests/prometheus.yaml"
 }
 
 install_vault() {
@@ -248,13 +283,17 @@ install_controller() {
 	local region="$1"
 	local context
 	context=$(context_for "${region}")
-	log "installing non-reconciling controller in ${context}"
+	log "installing replica credential controller in ${context}"
 	kubectl --context "${context}" apply -f "${ROOT_DIR}/config/rbac/serviceaccount.yaml"
 	kubectl --context "${context}" apply -f "${ROOT_DIR}/config/rbac/system-role.yaml"
 	kubectl --context "${context}" apply -f "${ROOT_DIR}/config/rbac/system-rolebinding.yaml"
 	kubectl --context "${context}" apply -f "${ROOT_DIR}/config/installation/state-secret.yaml"
+	kubectl --context "${context}" -n cnpg-system create secret generic vault-replica-controller-vault \
+		--from-literal=token="${VAULT_ROOT_TOKEN}" \
+		--dry-run=client -o yaml | kubectl --context "${context}" apply -f -
 	apply_target_rbac "${context}"
 	kubectl --context "${context}" apply -f "${ROOT_DIR}/config/manager/deployment.yaml"
+	kubectl --context "${context}" apply -f "${ROOT_DIR}/config/manager/metrics-service.yaml"
 	kubectl --context "${context}" -n cnpg-system set image deployment/vault-replica-controller \
 		manager="${OPERATOR_IMAGE}"
 	kubectl --context "${context}" -n cnpg-system set env deployment/vault-replica-controller \
@@ -263,6 +302,44 @@ install_controller() {
 		VAULT_ALLOW_INSECURE_HTTP=true
 	kubectl --context "${context}" -n cnpg-system rollout status \
 		deployment/vault-replica-controller --timeout=5m
+}
+
+install_prometheus() {
+	local region="$1"
+	local context
+	context=$(context_for "${region}")
+	log "installing minimal Prometheus observer in ${context}"
+	render_prometheus_manifest | kubectl --context "${context}" apply -f -
+	kubectl --context "${context}" -n cnpg-system rollout status deployment/e2e-prometheus --timeout=5m
+}
+
+assert_prometheus_target() {
+	local region="$1"
+	local context
+	local port
+	local process
+	context=$(context_for "${region}")
+	port=$([[ "${region}" == "us" ]] && echo 19090 || echo 19091)
+	kubectl --context "${context}" -n cnpg-system port-forward service/e2e-prometheus "${port}:9090" \
+		>"${ARTIFACT_DIR}/prometheus-port-forward-${region}.log" 2>&1 &
+	process=$!
+	trap 'kill "${process}" >/dev/null 2>&1 || true' RETURN
+	for _ in $(seq 1 30); do
+		if curl --fail --silent "http://127.0.0.1:${port}/api/v1/targets" \
+			>"${ARTIFACT_DIR}/prometheus-targets-${region}.json"; then
+			if jq -e '.data.activeTargets[] | select(.labels.job == "vault-replica-controller" and .health == "up")' \
+				"${ARTIFACT_DIR}/prometheus-targets-${region}.json" >/dev/null; then
+				kill "${process}" >/dev/null 2>&1 || true
+				trap - RETURN
+				return 0
+			fi
+		fi
+		sleep 2
+	done
+	kill "${process}" >/dev/null 2>&1 || true
+	trap - RETURN
+	log "Prometheus did not observe a healthy controller target in ${region}"
+	return 1
 }
 
 assert_empty_database_inventory() {
@@ -293,6 +370,10 @@ main() {
 	build_images
 	install_controller us
 	install_controller eu
+	install_prometheus us
+	install_prometheus eu
+	assert_prometheus_target us
+	assert_prometheus_target eu
 	assert_empty_database_inventory
 	log "complete: full no-database environment is running"
 	log "artifacts: ${ARTIFACT_DIR}"

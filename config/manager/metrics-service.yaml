@@ -1,0 +1,16 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: vault-replica-controller-metrics
+  namespace: cnpg-system
+  labels:
+    app.kubernetes.io/name: vault-replica-controller
+    app.kubernetes.io/component: controller
+spec:
+  selector:
+    app.kubernetes.io/name: vault-replica-controller
+  ports:
+    - name: metrics
+      port: 8080
+      targetPort: metrics
+      protocol: TCP

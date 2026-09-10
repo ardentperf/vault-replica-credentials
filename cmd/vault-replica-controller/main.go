@@ -24,7 +24,7 @@ func main() {
 		os.Exit(1)
 	}
 	log.Info("configuration loaded", "watchNamespaces", cfg.WatchNamespaces, "systemNamespace", cfg.SystemNamespace)
-	log.Info("starting non-reconciling scaffold", "leaderElection", cfg.Runtime.LeaderElection)
+	log.Info("starting controller", "leaderElection", cfg.Runtime.LeaderElection, "workers", cfg.Runtime.Workers)
 
 	mgr, err := operator.NewManager(cfg)
 	if err != nil {

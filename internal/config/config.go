@@ -20,6 +20,9 @@ const (
 
 	DefaultVaultMinLeaseDuration = 768 * time.Hour
 	DefaultLeaseSafetyMargin     = 24 * time.Hour
+	DefaultVaultRequestTimeout   = 15 * time.Second
+	DefaultVaultMaxRetries       = 3
+	DefaultVaultRetryDelay       = time.Second
 
 	DefaultPasswordPropagationDelay = 5 * time.Second
 	DefaultVerificationDelay        = 2 * time.Minute
@@ -56,9 +59,13 @@ type Config struct {
 // not select or execute a Vault authentication method.
 type VaultConfig struct {
 	Address           string
+	Token             string
 	AllowInsecureHTTP bool
 	MinLease          time.Duration
 	SafetyMargin      time.Duration
+	RequestTimeout    time.Duration
+	MaxRetries        int
+	RetryDelay        time.Duration
 }
 
 // WorkflowConfig contains persisted-timestamp and stage-deadline settings
@@ -112,6 +119,10 @@ func Load(lookup Lookup) (Config, error) {
 	if err := validateVaultAddress(vaultAddress, allowInsecureHTTP); err != nil {
 		return Config{}, err
 	}
+	vaultToken, err := requiredValue(lookup, "VAULT_TOKEN")
+	if err != nil {
+		return Config{}, err
+	}
 
 	stateSecretName := valueOr(lookup, "STATE_SECRET_NAME", DefaultStateSecretName)
 	if errs := validation.IsDNS1123Subdomain(stateSecretName); len(errs) > 0 {
@@ -133,6 +144,18 @@ func Load(lookup Lookup) (Config, error) {
 	if safetyMargin >= minLease {
 		return Config{}, fmt.Errorf("VAULT_LEASE_SAFETY_MARGIN must be less than VAULT_MIN_LEASE_DURATION")
 	}
+	requestTimeout, err := positiveDuration(lookup, "VAULT_REQUEST_TIMEOUT", DefaultVaultRequestTimeout)
+	if err != nil {
+		return Config{}, err
+	}
+	maxRetries, err := nonNegativeInt(lookup, "VAULT_MAX_RETRIES", DefaultVaultMaxRetries)
+	if err != nil {
+		return Config{}, err
+	}
+	retryDelay, err := positiveDuration(lookup, "VAULT_RETRY_DELAY", DefaultVaultRetryDelay)
+	if err != nil {
+		return Config{}, err
+	}
 
 	workflow, err := loadWorkflow(lookup)
 	if err != nil {
@@ -150,9 +173,13 @@ func Load(lookup Lookup) (Config, error) {
 		StateSecretKey:  stateSecretKey,
 		Vault: VaultConfig{
 			Address:           vaultAddress,
+			Token:             vaultToken,
 			AllowInsecureHTTP: allowInsecureHTTP,
 			MinLease:          minLease,
 			SafetyMargin:      safetyMargin,
+			RequestTimeout:    requestTimeout,
+			MaxRetries:        maxRetries,
+			RetryDelay:        retryDelay,
 		},
 		Workflow: workflow,
 		Runtime:  runtime,
@@ -300,6 +327,15 @@ func positiveInt(lookup Lookup, name string, fallback int) (int, error) {
 	value, err := strconv.Atoi(raw)
 	if err != nil || value <= 0 {
 		return 0, fmt.Errorf("%s must be a positive integer, got %q", name, raw)
+	}
+	return value, nil
+}
+
+func nonNegativeInt(lookup Lookup, name string, fallback int) (int, error) {
+	raw := valueOr(lookup, name, strconv.Itoa(fallback))
+	value, err := strconv.Atoi(raw)
+	if err != nil || value < 0 {
+		return 0, fmt.Errorf("%s must be a non-negative integer, got %q", name, raw)
 	}
 	return value, nil
 }

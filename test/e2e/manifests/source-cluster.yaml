@@ -1,0 +1,60 @@
+# Rendered by test/e2e/run.sh. This is test-owned CNPG fixture configuration;
+# the credential controller never creates or lifecycle-manages Cluster CRs.
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  name: __CLUSTER_NAME__
+  namespace: __NAMESPACE__
+  labels:
+    app.kubernetes.io/part-of: vault-replica-credentials-e2e
+spec:
+  imageName: __POSTGRES_IMAGE__
+  instances: 2
+  bootstrap:
+    initdb:
+      database: app
+      owner: app
+  # Define both members from creation. Because primary matches this Cluster's
+  # name, CNPG keeps it writable until the explicit switchover phase.
+  replica:
+    primary: __CLUSTER_NAME__
+    source: __REMOTE_CLUSTER_NAME__
+  externalClusters:
+    # CNPG's distributed-topology validation requires an entry matching the
+    # current replica.primary identity, including while this Cluster is the
+    # global primary. It is not a credential target for this controller.
+    - name: __CLUSTER_NAME__
+      connectionParameters:
+        host: __CLUSTER_NAME__-rw.__NAMESPACE__.svc
+        port: "5432"
+        user: __BOOTSTRAP_USER__
+        dbname: postgres
+        sslmode: disable
+      password:
+        name: __REMOTE_PASSWORD_SECRET__
+        key: password
+    - name: __REMOTE_CLUSTER_NAME__
+      connectionParameters:
+        host: __REMOTE_HOST__
+        port: "__REMOTE_PORT__"
+        user: __BOOTSTRAP_USER__
+        dbname: postgres
+        sslmode: disable
+      password:
+        name: __REMOTE_PASSWORD_SECRET__
+        key: password
+  storage:
+    size: 1Gi
+  affinity:
+    nodeSelector:
+      postgres.node.kubernetes.io: ""
+    tolerations:
+      - key: node-role.kubernetes.io/postgres
+        operator: Exists
+        effect: NoSchedule
+  postgresql:
+    parameters:
+      password_encryption: scram-sha-256
+    pg_hba:
+      - host all all all scram-sha-256
+      - host replication all all scram-sha-256

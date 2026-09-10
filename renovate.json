@@ -1,0 +1,67 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": ["config:recommended"],
+  "dependencyDashboard": true,
+  "rangeStrategy": "pin",
+  "rebaseWhen": "conflicted",
+  "packageRules": [
+    {
+      "matchUpdateTypes": ["patch", "minor", "digest"],
+      "automerge": true,
+      "automergeType": "pr",
+      "matchManagers": ["gomod", "dockerfile", "github-actions", "custom.regex"]
+    },
+    {
+      "matchUpdateTypes": ["major"],
+      "automerge": false
+    }
+  ],
+  "customManagers": [
+    {
+      "customType": "regex",
+      "managerFilePatterns": ["/^test/e2e/setup\\.sh$/"],
+      "matchStrings": ["CNPG_VERSION=\\\"(?<currentValue>v?[^\\\"$]+)\\\""],
+      "depNameTemplate": "cloudnative-pg/cloudnative-pg",
+      "datasourceTemplate": "github-releases"
+    },
+    {
+      "customType": "regex",
+      "managerFilePatterns": ["/^test/e2e/setup\\.sh$/"],
+      "matchStrings": ["(?<depName>hashicorp/vault):(?<currentValue>[^\\\"}]+)"],
+      "datasourceTemplate": "docker"
+    },
+    {
+      "customType": "regex",
+      "managerFilePatterns": ["/^test/e2e/install-tools\\.sh$/"],
+      "matchStrings": ["KIND_VERSION=\\\"(?<currentValue>v?[^\\\"]+)\\\""],
+      "depNameTemplate": "kubernetes-sigs/kind",
+      "datasourceTemplate": "github-releases"
+    },
+    {
+      "customType": "regex",
+      "managerFilePatterns": ["/^test/e2e/install-tools\\.sh$/"],
+      "matchStrings": ["KUBECTL_VERSION=\\\"(?<currentValue>v?[^\\\"]+)\\\""],
+      "depNameTemplate": "kubernetes/kubernetes",
+      "datasourceTemplate": "github-releases"
+    },
+    {
+      "customType": "regex",
+      "managerFilePatterns": ["/^test/e2e/install-tools\\.sh$/"],
+      "matchStrings": ["KUBECTL_CNPG_VERSION=\\\"(?<currentValue>v?[^\\\"]+)\\\""],
+      "depNameTemplate": "cloudnative-pg/cloudnative-pg",
+      "datasourceTemplate": "github-releases"
+    },
+    {
+      "customType": "regex",
+      "managerFilePatterns": ["/^test/e2e/setup\\.sh$/"],
+      "matchStrings": ["(?<depName>prom/prometheus):(?<currentValue>[^\\\"}]+)"],
+      "datasourceTemplate": "docker"
+    },
+    {
+      "customType": "regex",
+      "managerFilePatterns": ["/^test/e2e/setup\\.sh$/"],
+      "matchStrings": ["(?<depName>ghcr\\.io/cloudnative-pg/postgresql):(?<currentValue>[^\\\"}]+)"],
+      "datasourceTemplate": "docker"
+    }
+  ]
+}
