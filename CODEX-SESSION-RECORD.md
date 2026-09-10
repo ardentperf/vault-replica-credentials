@@ -25,6 +25,23 @@ PR action-runner aggregate passed all prerequisites and `ci`, the intentional
 failure aggregate check failed as designed, and the final local validation
 checks passed with no Kind clusters left behind.
 
+### User-supplied interruption message
+
+The user later supplied the exact terminal display from the interruption that
+followed the final Phase-1 progress update:
+
+```text
+• No error or timeout has been emitted; the run is still active in Phase 1’s final wait.
+
+⚠ Selected model is at capacity. Please try a different model.
+
+› do not stop until you are done and both completion gates pass. execute on IMPLEMENTATION_PLAN.md and do not stop until you are done and both completion gates pass.
+```
+
+This is user-observed evidence for restart interval 4. The JSONL preserves the
+preceding Phase-1 status message and the later repeated prompt, but not the
+capacity warning itself.
+
 ## Codex log record for the implementation prompt
 
 Source logs:
@@ -87,11 +104,10 @@ Recorded at `2026-09-08T21:42:52.992Z`, message ID
 The initial short session's turn context was `gpt-5.6-terra` and it carried a
 platform-generated `model_switch` instruction. Every turn context in the
 subsequent session is also `gpt-5.6-terra`. There is no locally recorded user
-message choosing a different model and no preserved exact error text stating
-that Terra was unavailable or requesting a model change. The record therefore
-supports the user's account that the same prompt was reissued without an
-intentional model change, but cannot attribute the interruptions to a specific
-availability error.
+message choosing a different model. The user-supplied terminal display above
+confirms a capacity warning, while the source JSONL does not preserve that
+exact warning. Together, the evidence supports the user's account that the
+same prompt was reissued without an intentional model change.
 
 ### Session and runtime metadata
 
