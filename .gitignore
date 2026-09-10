@@ -1,3 +1,5 @@
 /bin/
 /coverage.out
 /vault-replica-controller
+/.artifacts/
+/.cache/

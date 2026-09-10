@@ -1,0 +1,43 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": ["config:recommended"],
+  "dependencyDashboard": false,
+  "ignorePaths": [],
+  "enabledManagers": ["gomod", "dockerfile", "github-actions", "kubernetes", "custom.regex"],
+  "customManagers": [
+    {
+      "customType": "regex",
+      "managerFilePatterns": ["/(^|/)test/e2e/versions\\.env$/"],
+      "matchStrings": [
+        "# renovate: datasource=(?<datasource>\\S+) depName=(?<depName>\\S+)(?: versioning=(?<versioning>\\S+))?\\n[A-Z0-9_]+=(?<currentValue>\\S+)"
+      ]
+    },
+    {
+      "customType": "regex",
+      "managerFilePatterns": ["/(^|/)(Makefile|hack/[^/]+\\.sh)$/"],
+      "matchStrings": [
+        "# renovate: datasource=(?<datasource>\\S+) depName=(?<depName>\\S+)(?: versioning=(?<versioning>\\S+))?\\n[A-Z0-9_]+(?:\\s+\\?=\\s+|=)(?<currentValue>\\S+)"
+      ]
+    }
+  ],
+  "packageRules": [
+    {
+      "description": "Automerge non-major dependency-only changes after required CI",
+      "matchUpdateTypes": ["digest", "pin", "patch", "minor"],
+      "matchFileNames": ["**/*", "!.github/**", "!config/rbac/**", "!DESIGN.md", "!DESIGN_MAPPING.md", "!IMPLEMENTATION_PLAN.md", "!E2E_TEST_PLAN.md"],
+      "automerge": true,
+      "automergeType": "pr",
+      "platformAutomerge": true
+    },
+    {
+      "description": "Workflow dependency changes remain manual",
+      "matchManagers": ["github-actions"],
+      "automerge": false
+    },
+    {
+      "description": "Major updates remain manual",
+      "matchUpdateTypes": ["major"],
+      "automerge": false
+    }
+  ]
+}

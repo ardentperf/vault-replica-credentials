@@ -193,7 +193,7 @@ Configure the Vault database secrets engine and role before enabling rotation:
 - In a multi-database installation, the E2E convention derives the Vault
   database role from the source CNPG `Cluster` name: the selected source
   external-cluster entry has that Cluster name and the role is addressed as
-  `/database/creds/<source-cluster-name>`. The future controller must derive
+  `/database/creds/<source-cluster-name>`. The controller must derive
   the role from the current source reference rather than use one global role
   for every database.
 
@@ -209,7 +209,8 @@ The privileged PostgreSQL account used by Vault must be provisioned outside
 CloudNativePG's declarative account-management resources. If CNPG owns that
 account, CNPG may reconcile its declared password and overwrite a password
 rotation performed by Vault. The E2E fixture therefore creates the account
-with SQL using a static initial name/password, grants `CREATEROLE`, and leaves
+with SQL using a static initial name/password, grants `CREATEROLE` and
+`REPLICATION` (needed to create dynamic roles with that attribute), and leaves
 that account outside CNPG management. Vault rotates only the dynamic accounts
 it creates; this controller does not create or manage either kind of account.
 
@@ -1007,13 +1008,18 @@ rules:
   - apiGroups: ["coordination.k8s.io"]
     resources: ["leases"]
     verbs: ["get", "list", "watch", "create", "update", "patch"]
+  - apiGroups: [""]
+    resources: ["events"]
+    verbs: ["create", "patch"]
 ```
 
 The state Secret must be pre-created once if the controller is not allowed to
 create Secrets. The Secret rule is intentionally namespace-wide because that is
 the simplest way to use the normal controller-runtime cache; the controller
 still writes only `vault-replica-controller-state`. The Lease rule is for the
-single leader-election Lease in `cnpg-system`. No permission to read or watch
+single leader-election Lease in `cnpg-system`. Add `create` and `patch` on core
+Events in this namespace so controller-runtime can record leader acquisition;
+Events remain output-only and are never watched. No permission to read or watch
 the CloudNativePG controller Deployment is required.
 
 The controller's cache must not attempt to list or watch target credential
@@ -1084,47 +1090,47 @@ replication configuration. The controller does not need to manage
 
 ## Implementation checklist
 
-- [ ] Define the controller configuration format and state Secret name
+- [x] Define the controller configuration format and state Secret name
       (`vault-replica-controller-state`).
-- [ ] Pre-create the consolidated state Secret. Target credential Secrets may
+- [x] Pre-create the consolidated state Secret. Target credential Secrets may
       be created later by each database-provisioning workflow.
-- [ ] Install namespace-scoped `Role` and `RoleBinding` objects only in the
+- [x] Install namespace-scoped `Role` and `RoleBinding` objects only in the
       namespaces listed by the CNPG controller's `WATCH_NAMESPACE` value.
-- [ ] Set the controller's `WATCH_NAMESPACE` to the same value as CNPG's,
+- [x] Set the controller's `WATCH_NAMESPACE` to the same value as CNPG's,
       preferably from a shared deployment configuration value.
-- [ ] Install the `cnpg-system` Role for the consolidated state Secret.
-- [ ] Add namespaced Lease permissions for controller-runtime leader election.
-- [ ] Configure the controller cache for its `WATCH_NAMESPACE` list.
-- [ ] Grant only `patch` on Secrets in each watched namespace; do not grant
+- [x] Install the `cnpg-system` Role for the consolidated state Secret.
+- [x] Add namespaced Lease permissions for controller-runtime leader election.
+- [x] Configure the controller cache for its `WATCH_NAMESPACE` list.
+- [x] Grant only `patch` on Secrets in each watched namespace; do not grant
       target Secret `get`, `list`, or `watch`. Read each target Secret name from
       the selected external-cluster entry in the Cluster CRD.
-- [ ] Do not add target credential Secrets to the controller's watch set.
-- [ ] Grant `get` on `pods/proxy` for the CNPG instance-manager status check.
-- [ ] Implement new-cluster initialization with missing-Secret backoff.
-- [ ] Implement Cluster-UID/restart-episode trigger IDs and event
+- [x] Do not add target credential Secrets to the controller's watch set.
+- [x] Grant `get` on `pods/proxy` for the CNPG instance-manager status check.
+- [x] Implement new-cluster initialization with missing-Secret backoff.
+- [x] Implement Cluster-UID/restart-episode trigger IDs and event
       deduplication, together with controller-runtime work-queue serialization;
       do not add a separate distributed per-cluster lock.
-- [ ] Implement pending-lease recovery after process crashes.
-- [ ] Implement per-stage deadlines, retry backoff, Vault issue/lease-duration
+- [x] Implement pending-lease recovery after process crashes.
+- [x] Implement per-stage deadlines, retry backoff, Vault issue/lease-duration
       validation, lease revoke, expiration handling, and orphan cleanup. Do
       not implement database lease renewal.
-- [ ] Expose only the domain-specific metrics in the monitoring contract;
+- [x] Expose only the domain-specific metrics in the monitoring contract;
       reuse controller-runtime, client-go, and Go process/runtime metrics for
       generic controller, queue, API, and process behavior.
-- [ ] Expose per-replica lease time-to-expiration with namespace and Cluster
+- [x] Expose per-replica lease time-to-expiration with namespace and Cluster
       identity labels, without lease IDs, usernames, passwords, Secret names,
       Pod UIDs, event fingerprints, or Vault paths.
-- [ ] Implement password patch followed by username patch.
-- [ ] Implement verification from the designated primary's `/pg/status`
+- [x] Implement password patch followed by username patch.
+- [x] Implement verification from the designated primary's `/pg/status`
       response and require `isWalReceiverActive`.
-- [ ] Document the Vault authentication and database-role prerequisites,
+- [x] Document the Vault authentication and database-role prerequisites,
       including PostgreSQL `LOGIN`/`REPLICATION` and source `pg_hba.conf`.
-- [ ] Never remove a namespace from `WATCH_NAMESPACE` while it contains a
+- [x] Never remove a namespace from `WATCH_NAMESPACE` while it contains a
       managed Cluster; test restore-and-cleanup behavior if it is removed.
-- [ ] Test node drain, Pod replacement, CNPG restart, failover, switchover,
+- [x] Test node drain, Pod replacement, CNPG restart, failover, switchover,
       missed events, controller restart, Vault errors, and promotion during
       rotation.
-- [ ] Add alerts for failed rotations, failed Vault operations, pending
+- [x] Add alerts for failed rotations, failed Vault operations, pending
       workflows past their deadlines, and leases nearing expiration.
 
 ## References

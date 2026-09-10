@@ -80,10 +80,38 @@ func TestLoadAllowsExplicitInsecureHTTPForE2E(t *testing.T) {
 	}
 }
 
+func TestLoadRequiresVaultTokenWithoutEchoingIt(t *testing.T) {
+	env := validEnvironment()
+	delete(env, "VAULT_TOKEN")
+	if _, err := Load(mapLookup(env)); err == nil {
+		t.Fatal("Load() error = nil, want missing token error")
+	}
+}
+
+func TestLoadRejectsUnsafeAndMalformedRuntimeValues(t *testing.T) {
+	tests := map[string]string{
+		"VAULT_REQUEST_TIMEOUT": "0s",
+		"VAULT_RETRY_ATTEMPTS":  "zero",
+		"WORKERS":               "0",
+		"LEADER_ELECTION":       "sometimes",
+		"STATE_MAX_BYTES":       "-1",
+	}
+	for name, value := range tests {
+		t.Run(name, func(t *testing.T) {
+			env := validEnvironment()
+			env[name] = value
+			if _, err := Load(mapLookup(env)); err == nil {
+				t.Fatalf("Load() accepted %s=%q", name, value)
+			}
+		})
+	}
+}
+
 func validEnvironment() map[string]string {
 	return map[string]string{
 		"WATCH_NAMESPACE": "reporting",
 		"VAULT_ADDR":      "https://vault.example",
+		"VAULT_TOKEN":     "test-only-token",
 	}
 }
 

@@ -41,6 +41,11 @@ spec:
               value: https://vault.vault.svc:8200
             - name: VAULT_ALLOW_INSECURE_HTTP
               value: "false"
+            - name: VAULT_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: vault-replica-controller-vault
+                  key: token
             - name: STATE_SECRET_NAME
               value: vault-replica-controller-state
           ports:

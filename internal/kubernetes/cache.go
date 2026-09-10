@@ -4,11 +4,13 @@ package kubernetes
 import (
 	coordinationv1 "k8s.io/api/coordination/v1"
 	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	"sigs.k8s.io/controller-runtime/pkg/cache"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
+	"github.com/ardentperf/vault-replica-credentials/internal/cnpg"
 	"github.com/ardentperf/vault-replica-credentials/internal/config"
 )
 
@@ -17,18 +19,20 @@ var (
 	leaseCacheObject  client.Object = &coordinationv1.Lease{}
 )
 
-// NewScheme returns the Kubernetes scheme used by the manager. CloudNativePG
-// types will be added when the reconciler is implemented; no CNPG controller
-// or Cluster resource is created by this package.
+// NewScheme returns the Kubernetes scheme used by the manager. No CNPG
+// controller or Cluster resource is created by this package.
 func NewScheme() (*runtime.Scheme, error) {
 	scheme := runtime.NewScheme()
 	if err := clientgoscheme.AddToScheme(scheme); err != nil {
 		return nil, err
 	}
+	scheme.AddKnownTypeWithName(cnpg.ClusterGVK, cnpg.NewCluster())
+	scheme.AddKnownTypeWithName(cnpg.ClusterGVK.GroupVersion().WithKind("ClusterList"), cnpg.NewClusterList())
+	metav1.AddToGroupVersion(scheme, cnpg.ClusterGVK.GroupVersion())
 	return scheme, nil
 }
 
-// CacheOptions scopes the future cache exactly as required by DESIGN.md:
+// CacheOptions scopes the cache exactly as required by DESIGN.md:
 // Cluster and Pod informers fall under the approved namespaces, while Secret
 // and Lease informers are restricted to cnpg-system. Restricting Secret this
 // way prevents target credential Secret watches.

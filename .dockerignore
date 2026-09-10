@@ -1,5 +1,7 @@
 .git
 .github
+.artifacts
+.cache
 bin
 coverage.out
 tmp

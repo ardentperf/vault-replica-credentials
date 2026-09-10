@@ -10,3 +10,8 @@ rules:
   - apiGroups: ["coordination.k8s.io"]
     resources: ["leases"]
     verbs: ["get", "list", "watch", "create", "update", "patch"]
+  # controller-runtime leader election emits an audit Event for acquisition.
+  # Events are output only and are never watched as reconciliation input.
+  - apiGroups: [""]
+    resources: ["events"]
+    verbs: ["create", "patch"]

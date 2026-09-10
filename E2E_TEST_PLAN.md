@@ -2,14 +2,14 @@
 
 ## Status
 
-The plan decisions are accepted for implementation. The current repository
-scaffold remains deliberately non-reconciling; Vault issuance and the ordered
-scenario runner will be added only with the controller behavior described in
-`DESIGN.md`.
+The plan decisions are implemented. The checked-in runner executes Vault
+issuance and the complete ordered scenario suite against the controller
+behavior described in `DESIGN.md`.
 
 The following choices are accepted for this plan: host-network gateways rather
 than NodePorts; Vault roles derived from source CNPG Cluster names; a static
-SCRAM management account with `CREATEROLE`; a dev-mode Vault root token; and
+SCRAM management account with `CREATEROLE` and `REPLICATION`; a dev-mode Vault
+root token; and
 controller-only namespace removal while CNPG continues watching the namespace;
 PostgreSQL 18; two instances per source/replica Cluster; Distributed Topology
 from creation; and one ordered suite with checkpoints.
@@ -33,7 +33,9 @@ patching, username rotation, WAL verification, and Vault lease revocation. It
 does not test:
 
 - Vault authentication or production Vault policy design;
-- TLS or certificate authentication for Vault, PostgreSQL, or replication;
+- production certificate verification or mTLS authentication for Vault,
+  PostgreSQL, or replication (the test gateway uses encrypted
+  `sslmode=require` connections);
 - backups, object storage, monitoring, or unrelated CNPG features; or
 - the controller creating, owning, configuring, or lifecycle-managing CNPG
   `Cluster` resources.
@@ -146,7 +148,8 @@ Verify that the host has the required tools and that the run is isolated:
 The harness records versions of Docker, Kind, Kubernetes, `kubectl`, the CNPG
 plugin, Go, Prometheus, and the selected CNPG release. It creates a unique
 temporary artifact directory and refuses to reuse an existing `k8s-us` or
-`k8s-eu` cluster unless an explicit future debug mode is added.
+`k8s-eu` cluster unless the explicit `KEEP_E2E_CLUSTERS=true` debug mode is
+used.
 
 ### 2. Create the two Kind clusters
 
@@ -336,7 +339,7 @@ unused name, and names are not reused during a run. Every Cluster's
 external-cluster entry has a unique, explicit name and references its target
 Secret by name and key. The target Secret name is deliberately not a
 controller configuration value; it is read from that Cluster CRD by the
-future controller.
+controller.
 
 ### Static management account
 
@@ -344,8 +347,9 @@ After each new source Cluster is Ready, the harness uses SQL to create a
 dedicated static management account with a fixed test-only name and initial
 password, for example `vault_replica_admin` and a generated per-run static
 password. The account is created with password/SCRAM authentication and a
-`CREATEROLE` grant sufficient for the Vault database plugin to create and
-revoke `LOGIN` users with `REPLICATION`.
+`CREATEROLE` and `REPLICATION` attributes. PostgreSQL requires the creating
+role to hold `REPLICATION` before it may grant that attribute to Vault's
+dynamic `LOGIN` users; `SUPERUSER` is not required.
 
 The account is deliberately created with SQL rather than through a CNPG
 declarative account-management resource. If CNPG owns the account, it will
@@ -358,11 +362,11 @@ The account's initial password is static for the lifetime of the fixture. The
 suite does not test Vault static-role rotation of this management account. It
 tests Vault's dynamic credentials created using this account.
 
-The source Cluster configuration must permit password/SCRAM connections for
-the management account and Vault-issued accounts, including replication
-connections in `pg_hba.conf`. TLS is disabled for this test path and client
-configuration uses password authentication; no certificate credentials are
-created or mounted.
+The source Cluster configuration permits password/SCRAM connections for the
+management account and Vault-issued accounts, including replication
+connections in `pg_hba.conf`. The gateway forwards CNPG's TLS connection and
+the clients use `sslmode=require`; no fixture-managed certificate credential
+is created or mounted.
 
 ### Vault database engine
 
@@ -385,7 +389,7 @@ Multiple source Clusters mean multiple Vault database configurations and
 roles. The E2E convention gives each role the source CNPG Cluster name:
 `database/roles/<source-cluster-name>` is issued through
 `database/creds/<source-cluster-name>`. Each target's selected source external
-cluster entry uses that same source Cluster name, so the future controller can
+cluster entry uses that same source Cluster name, so the controller can
 derive the role from the current source reference without a Secret-name-based
 guess or an additional per-database mapping.
 
@@ -449,7 +453,9 @@ The fixture must check the current topology dynamically, not infer roles from
 Cluster names or regions.
 
 For the current source primary, query `pg_stat_replication` and require the
-connection for the replica cluster to be present with `state = 'streaming'`.
+connection using the exact Vault-issued replication username to be present
+with `state = 'streaming'`. This prevents an unrelated in-region CNPG standby
+from satisfying the cross-region assertion.
 For the replica cluster's designated primary, require `pg_is_in_recovery()` to
 be true and query `pg_stat_wal_receiver`, requiring an active receiver with
 `status = 'streaming'`. The exact application-name and endpoint filters are
@@ -687,10 +693,12 @@ deleted.
 5. Assert that no credential rotation occurs while that namespace is outside
    the controller watch list, while existing replication continues.
 6. Keep `e2e-first` in CNPG's watch list and re-add it to this controller's
-   watch list, then wait for both caches and controllers to become Ready.
+   watch list, then wait for both caches and controllers to become Ready. Wait
+   for the startup observation to reconcile the topology change that occurred
+   while unwatched, including WAL recovery and old-lease revocation.
 7. Trigger another supported failover in that replica and assert that a
-   credential rotation now occurs, followed by WAL recovery and old-lease
-   revocation.
+   distinct credential rotation now occurs, followed by another WAL recovery
+   and old-lease revocation.
 
 This phase deliberately keeps CNPG watching the namespace so that its normal
 failover behavior remains available. The expected result is that CNPG changes
@@ -702,16 +710,18 @@ controller does nothing because the namespace is outside its own watch scope.
 Use the Phase 5 database pair so that the first-namespace state remains
 available for final namespace assertions.
 
-1. Delete the source and replica CNPG `Cluster` resources for the second-
-   namespace database through the test harness.
+1. Delete the replica CNPG `Cluster` resource for the second-namespace
+   database through the test harness, while its source remains reachable for
+   Vault's PostgreSQL revocation statement.
 2. Leave the target Secret in place to verify that this controller does not
    delete it.
 3. Wait for the controller's default five-minute orphan sweep and the required
    two consecutive confirmed absences.
 4. Assert that all known dynamic leases for the deleted replica are revoked,
    the corresponding state entries are removed, and no finalizer was needed.
-5. Verify that the source-side Vault database configuration can be removed by
-   the fixture cleanup after the controller has finished lease cleanup.
+5. Delete the source Cluster only after the replica lease has been revoked,
+   then verify that the source-side Vault database configuration can be
+   removed by fixture cleanup.
 
 The test must allow the design's normal cleanup delay—approximately ten
 minutes plus API/Vault time—rather than reducing the configured sweep and
@@ -726,8 +736,11 @@ before teardown.
 
 After a successful rotation, deliberately replace the target Secret's
 password with an invalid test value using the test actor, while retaining the
-Cluster username. Trigger or observe the corresponding reconnect window and
-assert that `/pg/status` reports `isWalReceiverActive: false`.
+Cluster username. Temporarily converge the replica Cluster to one instance so
+no standby can retain an already-authenticated receiver session, restart that
+sole Pod to force fresh authentication, and assert that `/pg/status` reports
+`isWalReceiverActive: false`. Restore the normal two-instance topology after
+recovery.
 
 The controller must not treat an unchanged Ready condition as authentication
 proof, must not revoke the still-needed valid lease prematurely, and must not
@@ -796,9 +809,9 @@ remaining test leases, delete the ephemeral Vault workload, and delete only
 the two run-owned Kind clusters. The harness must not delete arbitrary Docker
 containers, volumes, namespaces, or user clusters.
 
-## Review gates before implementation
+## Validated fixture contracts
 
-The following implementation checks remain:
+The implemented suite validates these contracts on every run:
 
 1. **Host-network reachability.** Validate that Pods in each Kind cluster can
    reach the other cluster's control-plane node IP and dedicated gateway port.
@@ -809,21 +822,5 @@ The following implementation checks remain:
 3. **Vault role naming.** Keep source Cluster names and selected external
    cluster entry names aligned so the role convention remains deterministic.
 
-## Implementation checks
-
-The design choices are settled. Implementation should still validate, rather
-than assume, the following environment-specific details:
-
-1. Pods in each Kind cluster can reach the other cluster's control-plane node
-   IP and dedicated host-network gateway port.
-2. The selected released CNPG plugin accepts the chosen standby instance for
-   `kubectl cnpg promote` and reports the expected topology transition.
-3. Source Cluster names and selected external-cluster entry names remain
-   aligned with the Vault role convention.
-
 These checks do not change the controller contract or authorize additional
-responsibilities.
-
-Acceptance of this plan authorizes the next phase—implementing the self-
-contained harness and then the controller behavior described in `DESIGN.md`—
-but does not authorize adding responsibilities absent from that design.
+responsibilities absent from `DESIGN.md`.

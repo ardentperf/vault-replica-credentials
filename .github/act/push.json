@@ -1,0 +1,5 @@
+{
+  "ref": "refs/heads/main",
+  "after": "0000000000000000000000000000000000000000",
+  "repository": {"full_name": "ardentperf/vault-replica-credentials"}
+}

@@ -1,0 +1,9 @@
+{
+  "pull_request": {
+    "number": 1,
+    "head": {"ref": "act-test", "sha": "0000000000000000000000000000000000000000"},
+    "base": {"ref": "main", "sha": "0000000000000000000000000000000000000000"}
+  },
+  "repository": {"full_name": "ardentperf/vault-replica-credentials"},
+  "ref": "refs/pull/1/merge"
+}

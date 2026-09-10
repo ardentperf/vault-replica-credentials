@@ -1,47 +1,92 @@
 SHELL := /bin/bash
 
+GO ?= go
 IMAGE ?= ghcr.io/ardentperf/vault-replica-credentials:dev
+GATEWAY_IMAGE ?= ghcr.io/ardentperf/vault-replica-credentials-gateway:dev
+# renovate: datasource=go depName=golang.org/x/vuln
+GOVULNCHECK_VERSION ?= v1.1.4
+# renovate: datasource=github-releases depName=rhysd/actionlint
+ACTIONLINT_VERSION ?= v1.7.7
+# renovate: datasource=github-releases depName=yannh/kubeconform
+KUBECONFORM_VERSION ?= v0.8.0
+# renovate: datasource=docker depName=renovate/renovate versioning=docker
+RENOVATE_VERSION ?= 44.69.11
+E2E_ARTIFACT_DIR ?= $(CURDIR)/.artifacts/e2e
 
-.PHONY: all build build-gateway test test-race fmt vet lint docker-build docker-build-gateway manifests e2e e2e-setup
+.PHONY: all build build-gateway fmt fmt-check vet test test-integration test-coverage \
+	test-race verify shell-check workflows-check manifests manifests-check \
+	image-build docker-build docker-build-gateway vulnerability-check \
+	renovate-validate ci e2e e2e-setup act-check
 
-all: test build
+all: ci
 
 build:
-	go build ./cmd/vault-replica-controller
+	$(GO) build ./...
 
 build-gateway:
-	go build ./cmd/cnpg-test-gateway
-
-test:
-	go test ./...
-
-test-race:
-	go test -race ./...
+	$(GO) build ./cmd/cnpg-test-gateway
 
 fmt:
-	gofmt -w $$(rg --files -g '*.go')
+	find . -type f -name '*.go' ! -path './.git/*' -exec gofmt -w {} +
+
+fmt-check:
+	@files=$$(find . -type f -name '*.go' ! -path './.git/*' -exec gofmt -l {} +); \
+	if [[ -n "$$files" ]]; then echo "Go files require gofmt:"; echo "$$files"; exit 1; fi
 
 vet:
-	go vet ./...
+	$(GO) vet ./...
 
-lint: fmt vet
+test:
+	$(GO) test ./...
+
+test-integration:
+	$(GO) test -count=1 ./internal/controller ./internal/kubernetes ./internal/state ./internal/vault
+
+test-coverage:
+	@mkdir -p .artifacts
+	$(GO) test -covermode=atomic -coverprofile=.artifacts/coverage.out ./...
+
+test-race:
+	$(GO) test -race ./...
+
+verify: fmt-check vet test test-integration
+
+shell-check:
+	bash hack/shell-check.sh
+
+workflows-check:
+	$(GO) run github.com/rhysd/actionlint/cmd/actionlint@$(ACTIONLINT_VERSION)
+	bash hack/test-aggregate-ci.sh
+
+manifests:
+	kubectl kustomize config
+
+manifests-check:
+	KUBECONFORM_VERSION=$(KUBECONFORM_VERSION) bash hack/manifests-check.sh
 
 docker-build:
 	docker build --tag $(IMAGE) .
 
-GATEWAY_IMAGE ?= ghcr.io/ardentperf/vault-replica-credentials-gateway:dev
-
 docker-build-gateway:
 	docker build --file Dockerfile.gateway --tag $(GATEWAY_IMAGE) .
 
-manifests:
-	kubectl apply --dry-run=client -k config
+image-build: docker-build docker-build-gateway
+
+vulnerability-check:
+	$(GO) run golang.org/x/vuln/cmd/govulncheck@$(GOVULNCHECK_VERSION) ./...
+
+renovate-validate:
+	docker run --rm -i --entrypoint sh renovate/renovate:$(RENOVATE_VERSION) \
+		-c 'cp /dev/stdin /tmp/renovate.json && renovate-config-validator /tmp/renovate.json' < renovate.json
+	bash hack/check-renovate-coverage.sh
+
+ci: verify test-race test-coverage manifests-check shell-check workflows-check image-build vulnerability-check renovate-validate
 
 e2e-setup:
-	bash test/e2e/setup.sh
+	E2E_ARTIFACT_DIR=$(E2E_ARTIFACT_DIR) bash test/e2e/setup.sh
 
 e2e:
-	@echo "E2E plan: see E2E_TEST_PLAN.md."
-	@echo "Use 'make e2e-setup' to provision the complete no-database environment."
-	@echo "The ordered scenario runner will be enabled with reconciliation behavior."
-	@echo "It must not require a cnpg-playground checkout at runtime."
+	E2E_ARTIFACT_DIR=$(E2E_ARTIFACT_DIR) bash test/e2e/run.sh
+
+act-check:
+	bash hack/act-check.sh
