@@ -9,6 +9,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/cache"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
+	"github.com/ardentperf/vault-replica-credentials/internal/cnpg"
 	"github.com/ardentperf/vault-replica-credentials/internal/config"
 )
 
@@ -17,18 +18,21 @@ var (
 	leaseCacheObject  client.Object = &coordinationv1.Lease{}
 )
 
-// NewScheme returns the Kubernetes scheme used by the manager. CloudNativePG
-// types will be added when the reconciler is implemented; no CNPG controller
-// or Cluster resource is created by this package.
+// NewScheme returns the Kubernetes scheme used by the manager. It registers
+// only the CNPG API types consumed by this controller; it never creates CNPG
+// resources.
 func NewScheme() (*runtime.Scheme, error) {
 	scheme := runtime.NewScheme()
 	if err := clientgoscheme.AddToScheme(scheme); err != nil {
 		return nil, err
 	}
+	if err := cnpg.AddToScheme(scheme); err != nil {
+		return nil, err
+	}
 	return scheme, nil
 }
 
-// CacheOptions scopes the future cache exactly as required by DESIGN.md:
+// CacheOptions scopes the controller cache exactly as required by DESIGN.md:
 // Cluster and Pod informers fall under the approved namespaces, while Secret
 // and Lease informers are restricted to cnpg-system. Restricting Secret this
 // way prevents target credential Secret watches.

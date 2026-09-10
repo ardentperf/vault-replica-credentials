@@ -1,0 +1,6 @@
+{
+  "ref": "refs/heads/main",
+  "after": "0000000000000000000000000000000000000000",
+  "repository": {"full_name": "local/vault-replica-credentials", "default_branch": "main"},
+  "sender": {"login": "local"}
+}

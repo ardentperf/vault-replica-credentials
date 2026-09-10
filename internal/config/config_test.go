@@ -66,6 +66,14 @@ func TestLoadRequiresTLSVaultAddress(t *testing.T) {
 	}
 }
 
+func TestLoadRequiresVaultToken(t *testing.T) {
+	env := validEnvironment()
+	delete(env, "VAULT_TOKEN")
+	if _, err := Load(mapLookup(env)); err == nil {
+		t.Fatal("Load() error = nil, want missing token error")
+	}
+}
+
 func TestLoadAllowsExplicitInsecureHTTPForE2E(t *testing.T) {
 	env := validEnvironment()
 	env["VAULT_ADDR"] = "http://vault.example:8200"
@@ -84,6 +92,7 @@ func validEnvironment() map[string]string {
 	return map[string]string{
 		"WATCH_NAMESPACE": "reporting",
 		"VAULT_ADDR":      "https://vault.example",
+		"VAULT_TOKEN":     "test-token",
 	}
 }
 

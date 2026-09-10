@@ -1,0 +1,116 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": ["config:recommended"],
+  "dependencyDashboard": false,
+  "rangeStrategy": "pin",
+  "labels": ["dependencies"],
+  "packageRules": [
+    {
+      "description": "Auto-merge tested non-major dependency updates only",
+      "matchUpdateTypes": ["patch", "minor", "pinDigest", "digest"],
+      "automerge": true,
+      "automergeType": "branch"
+    },
+    {
+      "description": "Major updates remain manual",
+      "matchUpdateTypes": ["major"],
+      "automerge": false
+    },
+    {
+      "description": "Do not auto-merge project source or workflow changes",
+      "matchFileNames": ["internal/**", "cmd/**", "config/**", ".github/**", "DESIGN*.md", "IMPLEMENTATION_PLAN.md"],
+      "automerge": false
+    }
+  ],
+  "customManagers": [
+    {
+      "customType": "regex",
+      "managerFilePatterns": ["/^test\\/e2e\\/setup\\.sh$/"],
+      "matchStrings": ["CNPG_VERSION=\"\\$\\{CNPG_VERSION:-v(?<currentValue>[0-9.]+)\\}\""],
+      "depNameTemplate": "cloudnative-pg/cloudnative-pg",
+      "datasourceTemplate": "github-releases"
+    },
+    {
+      "customType": "regex",
+      "managerFilePatterns": ["/^test\\/e2e\\/setup\\.sh$/"],
+      "matchStrings": ["VAULT_IMAGE=\"\\$\\{VAULT_IMAGE:-hashicorp/vault:(?<currentValue>[0-9.]+)\\}\""],
+      "depNameTemplate": "hashicorp/vault",
+      "datasourceTemplate": "docker"
+    },
+    {
+      "customType": "regex",
+      "managerFilePatterns": ["/^test\\/e2e\\/setup\\.sh$/"],
+      "matchStrings": ["KIND_VERSION=\"\\$\\{KIND_VERSION:-v(?<currentValue>[0-9.]+)\\}\""],
+      "depNameTemplate": "kubernetes-sigs/kind",
+      "datasourceTemplate": "github-releases"
+    },
+    {
+      "customType": "regex",
+      "managerFilePatterns": ["/^test\\/e2e\\/setup\\.sh$/"],
+      "matchStrings": ["KIND_NODE_IMAGE=\"\\$\\{KIND_NODE_IMAGE:-kindest/node:v(?<currentValue>[0-9.]+)\\}\""],
+      "depNameTemplate": "kindest/node",
+      "datasourceTemplate": "docker"
+    },
+    {
+      "customType": "regex",
+      "managerFilePatterns": ["/^test\\/e2e\\/setup\\.sh$/"],
+      "matchStrings": ["KUBECTL_VERSION=\"\\$\\{KUBECTL_VERSION:-v(?<currentValue>[0-9.]+)\\}\""],
+      "depNameTemplate": "kubernetes/kubernetes",
+      "datasourceTemplate": "github-releases"
+    },
+    {
+      "customType": "regex",
+      "managerFilePatterns": ["/^test\\/e2e\\/setup\\.sh$/"],
+      "matchStrings": ["CNPG_PLUGIN_VERSION=\"\\$\\{CNPG_PLUGIN_VERSION:-v(?<currentValue>[0-9.]+)\\}\""],
+      "depNameTemplate": "cloudnative-pg/cloudnative-pg",
+      "datasourceTemplate": "github-releases"
+    },
+    {
+      "customType": "regex",
+      "managerFilePatterns": ["/^test\\/e2e\\/setup\\.sh$/"],
+      "matchStrings": ["POSTGRES_IMAGE=\"\\$\\{POSTGRES_IMAGE:-(?<depName>ghcr\\.io/cloudnative-pg/postgresql):(?<currentValue>[0-9.]+)\\}\""],
+      "datasourceTemplate": "docker"
+    },
+    {
+      "customType": "regex",
+      "managerFilePatterns": ["/^test\\/e2e\\/setup\\.sh$/"],
+      "matchStrings": ["GO_IMAGE=\"\\$\\{GO_IMAGE:-(?<depName>golang):(?<currentValue>[0-9.]+)-bookworm\\}\""],
+      "datasourceTemplate": "docker"
+    },
+    {
+      "customType": "regex",
+      "managerFilePatterns": ["/^hack\\/ci-tools\\.sh$/"],
+      "matchStrings": ["KIND_VERSION=\"\\$\\{KIND_VERSION:-v(?<currentValue>[0-9.]+)\\}\""],
+      "depNameTemplate": "kubernetes-sigs/kind",
+      "datasourceTemplate": "github-releases"
+    },
+    {
+      "customType": "regex",
+      "managerFilePatterns": ["/^hack\\/ci-tools\\.sh$/"],
+      "matchStrings": ["KUBECTL_VERSION=\"\\$\\{KUBECTL_VERSION:-v(?<currentValue>[0-9.]+)\\}\""],
+      "depNameTemplate": "kubernetes/kubernetes",
+      "datasourceTemplate": "github-releases"
+    },
+    {
+      "customType": "regex",
+      "managerFilePatterns": ["/^hack\\/ci-tools\\.sh$/"],
+      "matchStrings": ["CNPG_PLUGIN_VERSION=\"\\$\\{CNPG_PLUGIN_VERSION:-v(?<currentValue>[0-9.]+)\\}\""],
+      "depNameTemplate": "cloudnative-pg/cloudnative-pg",
+      "datasourceTemplate": "github-releases"
+    },
+    {
+      "customType": "regex",
+      "managerFilePatterns": ["/^hack\\/ci-tools\\.sh$/"],
+      "matchStrings": ["JQ_VERSION=\"\\$\\{JQ_VERSION:-(?<currentValue>[0-9.]+)\\}\""],
+      "depNameTemplate": "jqlang/jq",
+      "datasourceTemplate": "github-releases"
+    },
+    {
+      "customType": "regex",
+      "managerFilePatterns": ["/^hack\\/ci-tools\\.sh$/"],
+      "matchStrings": ["SHELLCHECK_VERSION=\"\\$\\{SHELLCHECK_VERSION:-v(?<currentValue>[0-9.]+)\\}\""],
+      "depNameTemplate": "koalaman/shellcheck",
+      "datasourceTemplate": "github-releases"
+    }
+  ]
+}

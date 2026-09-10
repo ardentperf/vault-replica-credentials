@@ -1,0 +1,40 @@
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  name: __CLUSTER_NAME__
+  namespace: __NAMESPACE__
+  labels:
+    e2e.vault-replica-credentials/fixture: replica
+spec:
+  instances: 2
+  imageName: __POSTGRES_IMAGE__
+  affinity:
+    nodeSelector:
+      postgres.node.kubernetes.io: ""
+    tolerations:
+      - key: node-role.kubernetes.io/postgres
+        operator: Exists
+        effect: NoSchedule
+  storage:
+    size: 1Gi
+  postgresql:
+    pg_hba:
+      - host all all 0.0.0.0/0 scram-sha-256
+      - host replication all 0.0.0.0/0 scram-sha-256
+  bootstrap:
+    pg_basebackup:
+      source: __SOURCE_NAME__
+  replica:
+    enabled: true
+    source: __SOURCE_NAME__
+  externalClusters:
+    - name: __SOURCE_NAME__
+      connectionParameters:
+        host: __GATEWAY_HOST__
+        port: "__GATEWAY_PORT__"
+        user: __DUMMY_USER__
+        dbname: postgres
+        sslmode: disable
+      password:
+        name: __CREDENTIAL_SECRET__
+        key: password

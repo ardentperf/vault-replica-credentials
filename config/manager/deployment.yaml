@@ -29,7 +29,7 @@ spec:
           type: RuntimeDefault
       containers:
         - name: manager
-          image: ghcr.io/ardentperf/vault-replica-credentials:dev
+          image: ghcr.io/ardentperf/vault-replica-credentials:0.1.0
           imagePullPolicy: IfNotPresent
           args:
             - --zap-log-level=info
@@ -41,6 +41,11 @@ spec:
               value: https://vault.vault.svc:8200
             - name: VAULT_ALLOW_INSECURE_HTTP
               value: "false"
+            - name: VAULT_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: vault-replica-controller-vault-token
+                  key: token
             - name: STATE_SECRET_NAME
               value: vault-replica-controller-state
           ports:

@@ -1,0 +1,31 @@
+name: aggregate-failure-fixture
+
+on:
+  push:
+
+jobs:
+  passing-job:
+    runs-on: ubuntu-24.04
+    steps:
+      - run: true
+
+  intentionally-failing-job:
+    runs-on: ubuntu-24.04
+    steps:
+      - run: exit 1
+
+  ci:
+    if: always()
+    needs: [passing-job, intentionally-failing-job]
+    runs-on: ubuntu-24.04
+    steps:
+      - name: require every fixture job
+        env:
+          RESULTS: ${{ join(needs.*.result, ' ') }}
+        run: |
+          for result in ${RESULTS}; do
+            if [[ "${result}" != success ]]; then
+              echo "a required fixture job finished with: ${result}" >&2
+              exit 1
+            fi
+          done

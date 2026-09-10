@@ -19,6 +19,12 @@ Confirm that the repository contains and locally validates:
   `IMPLEMENTATION_PLAN.md`, and `MONITORING.md`; and
 - the Makefile targets used by CI.
 
+Run `make ci` outside Actions and `make act-check` with `act` installed. The
+pull-request and push event fixtures are checked in under `.github/act/`; the
+aggregate `ci` job is the only stable required check. The E2E job is serial,
+has an explicit outer timeout, and uploads only the scrubbed `artifacts/e2e`
+directory.
+
 No cloud credentials, GitHub OIDC provider, private registry credential, or
 repository secret should be required for the build and test workflows.
 
@@ -82,6 +88,11 @@ enforce these repository settings.
    including the full E2E suite, before merging a Renovate dependency pull
    request.
 6. Keep major updates manual unless the project explicitly changes that policy.
+
+Renovate's committed rule auto-merges only patch, minor, and digest updates;
+the administrator must configure branch protection to require `ci` and the
+relevant E2E result before enabling the app's automerge behavior. Source,
+RBAC, design, and workflow paths are explicitly excluded from that policy.
 
 The first Renovate pull request should be observed manually to confirm update
 discovery, test execution, rebasing, and merge behavior. Renovate itself is not

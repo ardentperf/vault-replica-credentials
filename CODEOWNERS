@@ -1,0 +1,6 @@
+# Keep ownership declarative; teams are created and assigned by an administrator.
+* @ardentperf/maintainers
+/internal/ @ardentperf/maintainers
+/config/ @ardentperf/maintainers
+/.github/ @ardentperf/maintainers
+/test/e2e/ @ardentperf/maintainers

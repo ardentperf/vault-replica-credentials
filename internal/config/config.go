@@ -29,6 +29,9 @@ const (
 	DefaultOrphanSweepInterval      = 5 * time.Minute
 	DefaultOrphanAbsenceSweeps      = 2
 	DefaultStateMaxBytes            = 256 * 1024
+	DefaultVaultRequestTimeout      = 15 * time.Second
+	DefaultVaultMaxRetries          = 3
+	DefaultVaultRetryBackoff        = 250 * time.Millisecond
 
 	DefaultMetricsBindAddress     = ":8080"
 	DefaultHealthProbeBindAddress = ":8081"
@@ -37,8 +40,7 @@ const (
 )
 
 // Config is the complete process configuration needed by the manager and the
-// future reconciliation implementation. Loading it does not make external
-// API calls.
+// reconciliation implementation. Loading it does not make external API calls.
 type Config struct {
 	WatchNamespaces []string
 
@@ -51,18 +53,21 @@ type Config struct {
 	Runtime  RuntimeConfig
 }
 
-// VaultConfig describes the future Vault client boundary. Authentication is
-// intentionally represented as deployment configuration; this scaffold does
-// not select or execute a Vault authentication method.
+// VaultConfig describes the already-authenticated Vault HTTP session used by
+// the controller. The token is kept in memory and is never logged.
 type VaultConfig struct {
 	Address           string
+	Token             string
 	AllowInsecureHTTP bool
 	MinLease          time.Duration
 	SafetyMargin      time.Duration
+	RequestTimeout    time.Duration
+	MaxRetries        int
+	RetryBackoff      time.Duration
 }
 
 // WorkflowConfig contains persisted-timestamp and stage-deadline settings
-// from DESIGN.md. No workflow is run by the initial scaffold.
+// from DESIGN.md.
 type WorkflowConfig struct {
 	PasswordPropagationDelay time.Duration
 	VerificationDelay        time.Duration
@@ -112,6 +117,10 @@ func Load(lookup Lookup) (Config, error) {
 	if err := validateVaultAddress(vaultAddress, allowInsecureHTTP); err != nil {
 		return Config{}, err
 	}
+	vaultToken, err := requiredValue(lookup, "VAULT_TOKEN")
+	if err != nil {
+		return Config{}, err
+	}
 
 	stateSecretName := valueOr(lookup, "STATE_SECRET_NAME", DefaultStateSecretName)
 	if errs := validation.IsDNS1123Subdomain(stateSecretName); len(errs) > 0 {
@@ -133,6 +142,18 @@ func Load(lookup Lookup) (Config, error) {
 	if safetyMargin >= minLease {
 		return Config{}, fmt.Errorf("VAULT_LEASE_SAFETY_MARGIN must be less than VAULT_MIN_LEASE_DURATION")
 	}
+	requestTimeout, err := positiveDuration(lookup, "VAULT_REQUEST_TIMEOUT", DefaultVaultRequestTimeout)
+	if err != nil {
+		return Config{}, err
+	}
+	maxRetries, err := nonNegativeInt(lookup, "VAULT_MAX_RETRIES", DefaultVaultMaxRetries)
+	if err != nil {
+		return Config{}, err
+	}
+	retryBackoff, err := positiveDuration(lookup, "VAULT_RETRY_BACKOFF", DefaultVaultRetryBackoff)
+	if err != nil {
+		return Config{}, err
+	}
 
 	workflow, err := loadWorkflow(lookup)
 	if err != nil {
@@ -150,9 +171,13 @@ func Load(lookup Lookup) (Config, error) {
 		StateSecretKey:  stateSecretKey,
 		Vault: VaultConfig{
 			Address:           vaultAddress,
+			Token:             vaultToken,
 			AllowInsecureHTTP: allowInsecureHTTP,
 			MinLease:          minLease,
 			SafetyMargin:      safetyMargin,
+			RequestTimeout:    requestTimeout,
+			MaxRetries:        maxRetries,
+			RetryBackoff:      retryBackoff,
 		},
 		Workflow: workflow,
 		Runtime:  runtime,
@@ -300,6 +325,15 @@ func positiveInt(lookup Lookup, name string, fallback int) (int, error) {
 	value, err := strconv.Atoi(raw)
 	if err != nil || value <= 0 {
 		return 0, fmt.Errorf("%s must be a positive integer, got %q", name, raw)
+	}
+	return value, nil
+}
+
+func nonNegativeInt(lookup Lookup, name string, fallback int) (int, error) {
+	raw := valueOr(lookup, name, strconv.Itoa(fallback))
+	value, err := strconv.Atoi(raw)
+	if err != nil || value < 0 {
+		return 0, fmt.Errorf("%s must be a non-negative integer, got %q", name, raw)
 	}
 	return value, nil
 }

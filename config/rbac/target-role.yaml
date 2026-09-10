@@ -17,8 +17,5 @@ rules:
     resources: ["pods/proxy"]
     verbs: ["get"]
   - apiGroups: [""]
-    resources: ["events"]
-    verbs: ["create", "patch"]
-  - apiGroups: [""]
     resources: ["secrets"]
     verbs: ["patch"]

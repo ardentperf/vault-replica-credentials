@@ -1,0 +1,9 @@
+{
+  "pull_request": {
+    "number": 1,
+    "head": {"ref": "local-test", "sha": "0000000000000000000000000000000000000000"},
+    "base": {"ref": "main", "sha": "0000000000000000000000000000000000000000"}
+  },
+  "repository": {"full_name": "local/vault-replica-credentials", "default_branch": "main"},
+  "sender": {"login": "local"}
+}

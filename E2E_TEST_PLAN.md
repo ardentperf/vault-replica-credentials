@@ -2,10 +2,10 @@
 
 ## Status
 
-The plan decisions are accepted for implementation. The current repository
-scaffold remains deliberately non-reconciling; Vault issuance and the ordered
-scenario runner will be added only with the controller behavior described in
-`DESIGN.md`.
+The plan decisions are accepted and implemented by the controller, Vault
+client, and ordered scenario runner in this repository. The scenario runner
+is an E2E test actor: SQL catalog access and fixture mutations remain outside
+the controller boundary.
 
 The following choices are accepted for this plan: host-network gateways rather
 than NodePorts; Vault roles derived from source CNPG Cluster names; a static
@@ -336,7 +336,7 @@ unused name, and names are not reused during a run. Every Cluster's
 external-cluster entry has a unique, explicit name and references its target
 Secret by name and key. The target Secret name is deliberately not a
 controller configuration value; it is read from that Cluster CRD by the
-future controller.
+controller.
 
 ### Static management account
 
@@ -385,7 +385,7 @@ Multiple source Clusters mean multiple Vault database configurations and
 roles. The E2E convention gives each role the source CNPG Cluster name:
 `database/roles/<source-cluster-name>` is issued through
 `database/creds/<source-cluster-name>`. Each target's selected source external
-cluster entry uses that same source Cluster name, so the future controller can
+cluster entry uses that same source Cluster name, so the controller can
 derive the role from the current source reference without a Secret-name-based
 guess or an additional per-database mapping.
 

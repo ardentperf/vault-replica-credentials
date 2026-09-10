@@ -4,6 +4,7 @@ kind: Kustomization
 resources:
   - installation/state-secret.yaml
   - manager/deployment.yaml
+  - manager/service.yaml
   - rbac/serviceaccount.yaml
   - rbac/system-role.yaml
   - rbac/system-rolebinding.yaml
